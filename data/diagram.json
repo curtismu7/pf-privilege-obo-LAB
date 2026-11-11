@@ -1,0 +1,302 @@
+{
+ "schema": "diagram-studio/1",
+ "id": "pf-privilege-obo",
+ "title": "PingFederate to Privilege: the OBO chain",
+ "lede": "Simulated chain this lab walks: user SSO, RFC 8693 exchange (sub=user, act.sub=agent), Privilege NHI check, grant tiers, Cedar scope gate, Pass Agent Token backend. Steps mirror the eight scenarios.",
+ "groups": {
+  "user": {
+   "label": "Caller",
+   "color": "grey"
+  },
+  "gw": {
+   "label": "Privilege gateway",
+   "color": "grey"
+  },
+  "p1": {
+   "label": "PingOne",
+   "color": "grey"
+  },
+  "pf": {
+   "label": "PingFederate (route A, not set up)",
+   "color": "grey"
+  }
+ },
+ "nodes": [
+  {
+   "id": "caller",
+   "group": "user",
+   "label": "MCP client",
+   "sub": [
+    "signs in as a PF user",
+    "calls a tool"
+   ],
+   "x": 0,
+   "y": 150
+  },
+  {
+   "id": "door",
+   "group": "gw",
+   "label": "Gateway door",
+   "sub": [
+    "example-tools",
+    "issuer = the door itself"
+   ],
+   "x": 380,
+   "y": 150
+  },
+  {
+   "id": "priv",
+   "group": "p1",
+   "label": "Identity provider A",
+   "sub": [
+    "Privilege \"AI Agent\" env",
+    "issues the token",
+    "fixed scopes"
+   ],
+   "x": 760,
+   "y": 40
+  },
+  {
+   "id": "demo",
+   "group": "p1",
+   "label": "Identity provider B",
+   "sub": [
+    "demo env",
+    "federation app + sign-on"
+   ],
+   "x": 1140,
+   "y": 40
+  },
+  {
+   "id": "pf",
+   "group": "pf",
+   "label": "PingFederate",
+   "sub": [
+    "external OIDC IdP",
+    "not registered anywhere yet"
+   ],
+   "x": 1140,
+   "y": 260
+  },
+  {
+   "id": "dir",
+   "group": "gw",
+   "label": "Privilege directory",
+   "sub": [
+    "users + email aliases",
+    "groups"
+   ],
+   "x": 760,
+   "y": 260
+  },
+  {
+   "id": "cedar",
+   "group": "gw",
+   "label": "AI policy (Cedar)",
+   "sub": [
+    "aipolicys, State Active",
+    "app, tool, args, scopes, group"
+   ],
+   "x": 380,
+   "y": 380
+  },
+  {
+   "id": "tool",
+   "group": "gw",
+   "label": "Example Search MCP tool",
+   "sub": [
+    "SearchIndexTool",
+    "runs only if allowed"
+   ],
+   "x": 0,
+   "y": 380
+  },
+  {
+   "id": "agent",
+   "group": "user",
+   "label": "Agent with a PF JWT",
+   "sub": [
+    "route C: agent caller",
+    "aud = Privilege-generated"
+   ],
+   "x": 1140,
+   "y": 440
+  },
+  {
+   "id": "nhi",
+   "group": "gw",
+   "label": "Non-Human Identity",
+   "sub": [
+    "type OIDC Provider: iss, sub, JWKS",
+    "audience generated on save",
+    "End user: None | Resolved | Opaque"
+   ],
+   "x": 760,
+   "y": 540
+  },
+  {
+   "id": "pac",
+   "group": "gw",
+   "label": "Access policy (pacpolicys)",
+   "sub": [
+    "RequiredClaims, dotted claim paths",
+    "claim-conditioned tool tiers"
+   ],
+   "x": 380,
+   "y": 600
+  }
+ ],
+ "edges": [
+  {
+   "source": "caller",
+   "target": "door",
+   "label": "tools/call with no token: 401, the door is its own authorization server"
+  },
+  {
+   "source": "door",
+   "target": "priv",
+   "label": "302 /authorize: scopes openid profile email offline_access p1:read:*"
+  },
+  {
+   "source": "priv",
+   "target": "demo",
+   "label": "federates onward to the demo environment (one login)"
+  },
+  {
+   "source": "demo",
+   "target": "pf",
+   "label": "Route A: PF added as an external OIDC IdP",
+   "dashed": true
+  },
+  {
+   "source": "pf",
+   "target": "demo",
+   "label": "PF authenticates the user; identity comes back, not PF claims",
+   "dashed": true
+  },
+  {
+   "source": "priv",
+   "target": "door",
+   "label": "token issued by <tenant-a>; PF scopes are not expected in it",
+   "dashed": true
+  },
+  {
+   "source": "door",
+   "target": "dir",
+   "label": "caller matched to a Privilege user by email alias; groups loaded",
+   "dashed": true
+  },
+  {
+   "source": "door",
+   "target": "cedar",
+   "label": "evaluate: context.app, Tool, context.args, context.token.scopes, principal in Group"
+  },
+  {
+   "source": "cedar",
+   "target": "door",
+   "label": "allow, refuse (mcp:Invoke) or hold for a human (mcp:InvokeUnattended)",
+   "dashed": true
+  },
+  {
+   "source": "door",
+   "target": "tool",
+   "label": "forwarded only when allowed; a hold waits for approval, then the client retries"
+  },
+  {
+   "source": "agent",
+   "target": "door",
+   "label": "route C: bearer = PF-issued JWT (untested on MCP)",
+   "dashed": true
+  },
+  {
+   "source": "door",
+   "target": "nhi",
+   "label": "verifies iss, sub, aud and signature against the registered JWKS; Resolved looks the person up",
+   "dashed": true
+  },
+  {
+   "source": "nhi",
+   "target": "pac",
+   "label": "verified claims matched against RequiredClaims: any listed value per claim, every claim must match",
+   "dashed": true
+  },
+  {
+   "source": "pac",
+   "target": "cedar",
+   "label": "only the matching tier's tools go on to Cedar, which still decides per tool",
+   "dashed": true
+  }
+ ],
+ "steps": [
+  {
+   "title": "User signs in at PingFederate",
+   "what": "The person signs in through PingFederate SSO; the client receives a subject token proving the user - and nothing else.",
+   "why": "The agent must never hold the user token; it only ever holds the OBO token minted for it.",
+   "edges": [
+    0,
+    1
+   ]
+  },
+  {
+   "title": "Sign-in is federated to the demo environment",
+   "what": "Environment <tenant-a> hands the sign-in on to <tenant-b>, the demo environment, so the user logs in once, there.",
+   "why": "That is the only place PingFederate can be added without touching Privilege.",
+   "edges": [
+    2
+   ]
+  },
+  {
+   "title": "Route A: PingFederate as an external IdP",
+   "what": "PF would be added to <tenant-b> the way AIC already is: an IdP object plus a sign-on policy on the federation app. PF authenticates; PingOne takes the identity. Not done yet, and a write to ask about first.",
+   "why": "This brings the PF user in. It does not carry PF claims through to Cedar.",
+   "edges": [
+    3,
+    4
+   ]
+  },
+  {
+   "title": "The token Cedar sees is Privilege's",
+   "what": "<tenant-a> issues the token with its own scopes. PF scopes appearing in context.token.scopes is untested; assume they do not.",
+   "why": "Protect on identity and groups, not on a PF scope, until a live call proves otherwise.",
+   "edges": [
+    5
+   ]
+  },
+  {
+   "title": "The caller becomes a Privilege principal",
+   "what": "The gateway matches the caller to a Privilege user by email alias and loads that user's groups. Its log reports the registry: 4 users (+4 email aliases), 4 agents, 1 group, 112 resources.",
+   "why": "Group rules only work for people who exist in the Privilege directory.",
+   "edges": [
+    6
+   ]
+  },
+  {
+   "title": "Cedar decides",
+   "what": "Active AI policies run on every call. The vocabulary is fixed: app, tool, arguments, token scopes, agent scopes, group, named agent, approval count. There is no raw claims object and no act or ID-JAG hook.",
+   "why": "A rule can only name attributes the engine exposes.",
+   "edges": [
+    7,
+    8
+   ]
+  },
+  {
+   "title": "Allowed calls reach the tool",
+   "what": "A refusal logs mcp_policy_denied. A hold logs mcp_policy_approval_required and opens an approval; the client retries after it is approved. Policies created as Candidate never enforce until set to Active.",
+   "why": "The hold-approve-retry loop is the same one proven on this door for SearchIndexTool.",
+   "edges": [
+    9
+   ]
+  },
+  {
+   "title": "Route C: an agent presents a PF-issued JWT (designed, not set up)",
+   "what": "Register a Non-Human Identity of type OIDC Provider with the PF issuer, the agent's sub and PF's JWKS. Privilege generates the audience; PF must mint tokens carrying it. The access policy can then require claim values (dotted paths such as realm_access.roles) before a tool tier applies; with End user set to Resolved, the person named in the token becomes a Privilege user for group rules.",
+   "why": "This is the native claim gate. It lives in the access policy, not in Cedar; four sensor identities already prove the federation pattern on this tenant, but none exists for PF and no rule uses RequiredClaims yet.",
+   "edges": [
+    10,
+    11,
+    12,
+    13
+   ]
+  }
+ ]
+}

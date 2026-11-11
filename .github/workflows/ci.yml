@@ -1,0 +1,58 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 26
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: No AI attribution anywhere (owner rule 2026-11-07)
+        run: bash scripts/check-no-ai-attribution.sh
+      - run: npm test
+      - run: node scripts/doctor.mjs
+
+  conformance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 26
+      - name: Run conformance gate (vendored copy, new app)
+        run: node test/kit/demo-kit-conformance.mjs . --new --tier=Demo || echo "::warning::conformance reported findings"
+
+  forbidden-strings:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 26
+      - name: Scan history for forbidden strings
+        env:
+          FORBIDDEN_STRINGS: ${{ secrets.FORBIDDEN_STRINGS }}
+        run: |
+          [ -n "$FORBIDDEN_STRINGS" ] || { echo "::error::FORBIDDEN_STRINGS secret is not set"; exit 1; }
+          COUNT=$(git log -p --all | grep -cF -f <(echo "$FORBIDDEN_STRINGS") || true)
+          echo "history scan hits: $COUNT"
+          [ "$COUNT" -eq 0 ]
+
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

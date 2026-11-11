@@ -1,0 +1,21 @@
+name: pf-privilege-obo-lab
+
+services:
+  pf-privilege-obo-lab:
+    build: .
+    image: pf-privilege-obo-lab:latest
+    container_name: pf-privilege-obo-lab
+    ports:
+      - "127.0.0.1:${HOST_PORT:-7812}:7812"
+    environment:
+      - PORT=7812
+      - BIND_ALL=1
+      - LAB_ALLOWED_HOSTS=localhost:7812,127.0.0.1:7812,pf-privilege-obo-lab.local.ping-devops.com:7812,pf-privilege-obo-lab:7812,pf-privilege-obo-lab.local.ping-devops.com:8443,local.ping-devops.com:8443
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped

@@ -1,0 +1,284 @@
+{
+ "schema": "demo-content-pack/1",
+ "id": "pf-privilege-obo-lab",
+ "title": "PF \u2192 Privilege OBO Lab",
+ "version": "1.0.0",
+ "demo": {
+  "id": "pf-privilege-obo-lab",
+  "name": "PF \u2192 Privilege OBO Lab",
+  "catalog": "D000",
+  "baseUrl": "http://127.0.0.1:7812",
+  "doctor": "/api/health",
+  "tags": [
+   "pingone-privilege",
+   "pingfederate",
+   "agent-identity",
+   "token-exchange",
+   "authorization-policy",
+   "simulated"
+  ]
+ },
+ "glossary": [
+  {
+   "id": "obo",
+   "term": "OBO (on-behalf-of)",
+   "definition": "A token shape where sub is the user the agent acts for and act.sub is the agent itself. The agent never holds the user's own token.",
+   "aliases": [
+    "on-behalf-of",
+    "delegation"
+   ]
+  },
+  {
+   "id": "subject-token",
+   "term": "Subject token",
+   "definition": "The token proving the user, produced by SSO sign-in. The agent's client exchanges it at PingFederate for the OBO token.",
+   "aliases": [
+    "ID token",
+    "refresh token"
+   ]
+  },
+  {
+   "id": "token-exchange",
+   "term": "Token exchange (RFC 8693)",
+   "definition": "The OAuth grant that turns the subject token into the OBO access token. PingFederate mints it with sub = user, act.sub = agent, aud = the agent app URL.",
+   "aliases": [
+    "RFC 8693",
+    "exchange"
+   ]
+  },
+  {
+   "id": "act-claim",
+   "term": "act claim (actor)",
+   "definition": "The RFC 8693 actor claim. In PingFederate's token manager mapping it is an expression and must produce an OBJECT such as {\"sub\": \"<agent-id>\"}; the text \"{}\" is not an object and act.sub then does not exist.",
+   "aliases": [
+    "act.sub",
+    "actor"
+   ]
+  },
+  {
+   "id": "nhi",
+   "term": "NHI / Federated Identity (Privilege)",
+   "definition": "The Privilege object that trusts an external token issuer (here PingFederate) by exact issuer, JWKS URL, audience, required claims and max token lifetime. Ping's 2026-11 release notes rename it Federated Identity.",
+   "aliases": [
+    "Non-Human Identity",
+    "federated identity"
+   ]
+  },
+  {
+   "id": "required-claims",
+   "term": "Required claims",
+   "definition": "Exact-match claims the gateway demands on the presented token; act.sub and client_id pin which agent is accepted. Dotted paths (act.sub) are supported.",
+   "aliases": [
+    "RequiredClaims"
+   ]
+  },
+  {
+   "id": "grant",
+   "term": "Grant (agent key)",
+   "definition": "The per-key allowlist of tools per agent app. Selecting the app on the key IS the grant; scope-based RequiredClaims make tiers. API-POSTed separate grants are deleted by the gateway within seconds - edit the console-made grant instead.",
+   "aliases": [
+    "pacpolicys",
+    "tool access"
+   ]
+  },
+  {
+   "id": "cedar-policy",
+   "term": "Cedar AI policy",
+   "definition": "A Privilege policy that can refuse one tool call based on the token's scopes (context.token.scopes). An API-created policy has State \"\" - compiled but never enforced - until set Active.",
+   "aliases": [
+    "AI policy",
+    "Candidate vs Active"
+   ]
+  },
+  {
+   "id": "pass-agent-token",
+   "term": "Pass Agent Token",
+   "definition": "Agent-app auth mode where the gateway forwards the verified token unchanged to the backend, which verifies it itself. The gateway cannot down-scope it.",
+   "aliases": [
+    "token-pass",
+    "passthrough"
+   ]
+  },
+  {
+   "id": "resource-param",
+   "term": "resource parameter",
+   "definition": "Every PingFederate token request must send resource=<agent app URL>. Without it a scoped request can be served by the DEFAULT token manager with the wrong audience and no sub/act - the gateway then answers 401 token_not_found.",
+   "aliases": [
+    "token_not_found"
+   ]
+  }
+ ],
+ "sources": [
+  {
+   "id": "rfc8693",
+   "title": "RFC 8693: OAuth 2.0 Token Exchange",
+   "url": "https://www.rfc-editor.org/rfc/rfc8693",
+   "kind": "standard",
+   "use": "Defines the token exchange grant and the act (actor) claim.",
+   "status": "not-read",
+   "checked": "2026-11-11"
+  },
+  {
+   "id": "pf-obo-setup",
+   "title": "PF-OBO-WITH-PINGFEDERATE-SETUP.md (parent demo privilege docs)",
+   "url": "internal://pf-obo-with-pingfederate-setup",
+   "kind": "internal-measured",
+   "use": "The measured setup this lab simulates: PF token manager, NHI fields, grant rules, every refusal.",
+   "status": "read",
+   "checked": "2026-11-11"
+  },
+  {
+   "id": "pf-token-exchange",
+   "title": "PF token exchange into Privilege, with Pass Agent Token",
+   "url": "internal://pf-token-exchange-pass-agent-token",
+   "kind": "internal-measured",
+   "use": "The verified autonomous-agent variant, working configuration, and troubleshooting table the refusal reasons mirror.",
+   "status": "read",
+   "checked": "2026-11-11"
+  }
+ ],
+ "cards": [
+  {
+   "id": "try-allowed",
+   "label": "Scenario 1: OBO happy path (read tier)",
+   "description": "The full chain runs: SSO, exchange, NHI check, grant, Cedar, backend. The claims viewer shows sub = user and act.sub = agent.",
+   "group": "try-it",
+   "action": {
+    "type": "route",
+    "href": "/#flow"
+   },
+   "terms": [
+    "obo",
+    "token-exchange"
+   ],
+   "story": "S01"
+  },
+  {
+   "id": "try-cedar",
+   "label": "Scenario 2: Cedar blocks by scope",
+   "description": "An Active Cedar policy refuses SearchIndexTool unless the token carries the scope: HTTP 400, JSON-RPC -32600, policy name in the reason.",
+   "group": "try-it",
+   "action": {
+    "type": "route",
+    "href": "/#flow"
+   },
+   "terms": [
+    "cedar-policy"
+   ],
+   "story": "S02"
+  },
+  {
+   "id": "try-act-text",
+   "label": "Scenario 3: act emitted as the text \"{}\"",
+   "description": "The real PingFederate mapping trap: act.sub does not exist, so the NHI's required claim refuses the token - 401 with the exact measured log line.",
+   "group": "try-it",
+   "action": {
+    "type": "route",
+    "href": "/#flow"
+   },
+   "terms": [
+    "act-claim",
+    "required-claims"
+   ],
+   "story": "S03"
+  },
+  {
+   "id": "try-autonomous",
+   "label": "Scenario 4: autonomous shape (no user, no act)",
+   "description": "A client-credentials token with sub = the agent is refused by the act.sub required claim: the agent cannot drop the user from an OBO chain.",
+   "group": "try-it",
+   "action": {
+    "type": "route",
+    "href": "/#flow"
+   },
+   "terms": [
+    "obo",
+    "required-claims"
+   ],
+   "story": "S04"
+  },
+  {
+   "id": "card-what-privilege-does",
+   "label": "What Privilege does here",
+   "description": "Trusts PF as the issuer, accepts only the pinned agent, holds no secret for the agent, tiers tools by scope, blocks one tool with Cedar, forwards the token unchanged, discovers tools on the first accepted call.",
+   "group": "concept",
+   "action": {
+    "type": "route",
+    "href": "/#issues"
+   },
+   "terms": [
+    "nhi",
+    "grant",
+    "pass-agent-token"
+   ],
+   "story": "S05"
+  },
+  {
+   "id": "card-what-privilege-cant",
+   "label": "What Privilege can't (yet)",
+   "description": "Does not exchange tokens (PF does), cannot down-scope the forwarded token, Cedar reads scopes only today, no wildcard audiences, deletes API-POSTed grants.",
+   "group": "concept",
+   "action": {
+    "type": "route",
+    "href": "/#issues"
+   },
+   "terms": [
+    "cedar-policy",
+    "grant"
+   ],
+   "story": "S06"
+  },
+  {
+   "id": "card-honesty",
+   "label": "Honesty: what is verified",
+   "description": "The autonomous-agent token shape is verified end to end on a real tenant. The OBO claim shape fits the same NHI settings per Ping but was still in staging as of 2026-10-23 - run one exchange with a real subject token before a customer demo.",
+   "group": "concept",
+   "action": {
+    "type": "route",
+    "href": "/#issues"
+   },
+   "terms": [
+    "obo",
+    "nhi"
+   ],
+   "story": "S07"
+  }
+ ],
+ "stories": [
+  {
+   "id": "S01",
+   "title": "Allowed: the OBO happy path",
+   "say": "sub is the user, act.sub is the agent, the audience is the agent app URL, and every check passes. The backend's whoami sees the same token the agent sent."
+  },
+  {
+   "id": "S02",
+   "title": "Blocked: Cedar on token scopes",
+   "say": "The grant let the tool through; the Active Cedar policy refused it. Today Cedar reads scopes only - other claims are coming in a later release."
+  },
+  {
+   "id": "S03",
+   "title": "Refused: act as the text \"{}\"",
+   "say": "The token was signed and the issuer matched, but the required claim act.sub does not match, because the mapping emitted text instead of an object. Fix the mapping expression, not the identity."
+  },
+  {
+   "id": "S04",
+   "title": "Refused: the autonomous shape",
+   "say": "A token that proves only a client is not enough for an OBO chain: the required act.sub claim refuses it. This is what keeps the user in the loop."
+  },
+  {
+   "id": "S05",
+   "title": "The customer story",
+   "say": "Agents keep their identity in your own PingFederate; Privilege governs which tools they reach with no Privilege-issued secret, and can switch any agent off by disabling the identity or revoking the key."
+  },
+  {
+   "id": "S06",
+   "title": "The limits, honestly",
+   "say": "Down-scoping needs an exchange in front of the gateway; wildcard audiences do not exist; API-POSTed grants die in seconds. The lab labels every limit on the Issues tab."
+  },
+  {
+   "id": "S07",
+   "title": "Verify before you demo",
+   "say": "Decode the minted token and check iss, sub, aud, act.sub, scope and lifetime against the NHI, then run one tools/list. Content beats status codes."
+  }
+ ]
+}
