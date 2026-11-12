@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from "react";
+import TopMenu from "./top-menu/TopMenu.jsx";
+import "./top-menu/top-menu.css";
 import SimulationBanner, { ModeToggle } from "./Banner.jsx";
 import ThemePicker from "./ThemePicker.jsx";
 import FlowSim from "./FlowSim.jsx";
@@ -79,26 +81,19 @@ export default function App() {
           <a href="#issues">Issues</a>
         </nav>
         <div className="shell-right">
-          <ThemePicker />
-          <label className="speed-control" htmlFor="speed">
-            Speed
-            <select id="speed" value={speed} onChange={(e) => setSpeed(Number(e.target.value))}>
-              <option value={0.5}>0.5×</option>
-              <option value={1}>1×</option>
-              <option value={2}>2×</option>
-              <option value={4}>4×</option>
-            </select>
-          </label>
-          <button
-            type="button"
-            aria-pressed={presenter}
-            data-testid="presenter"
-            title="Presenter mode (Alt+P): show the talk-track line instead of the intro copy"
-            onClick={() => setPresenter((v) => !v)}
-          >
-            {presenter ? "Exit presenter (Esc)" : "Presenter (Alt+P)"}
-          </button>
-          <ModeToggle source={source} onSwitch={switchMode} info={info.data} />
+          <TopMenu
+            mode={{ value: source === "real" ? "real" : "mock", onChange: (m) => switchMode(m === "real" ? "real" : "mock"), realAvailable: null }}
+            theme={undefined}
+            present={{ active: presenter, onToggle: () => setPresenter((v) => !v), label: "Presenter (Alt+P)" }}
+            extra={<label className="speed-control" htmlFor="speed">Speed
+              <select id="speed" value={speed} onChange={(e) => setSpeed(Number(e.target.value))}>
+                <option value={0.5}>0.5×</option>
+                <option value={1}>1×</option>
+                <option value={2}>2×</option>
+                <option value={4}>4×</option>
+              </select>
+            </label>}
+          />
         </div>
       </header>
       <div className="accent-rule" aria-hidden="true" />
