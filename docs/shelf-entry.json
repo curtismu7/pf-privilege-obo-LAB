@@ -2,6 +2,7 @@
   "id": "pf-privilege-obo-LAB",
   "name": "PF → Privilege OBO Lab",
   "tier": "Demo",
+  "catalogId": "D130",
   "description": "Simulated PingFederate → Privilege on-behalf-of chain: user SSO, RFC 8693 token exchange (sub=user, act.sub=agent), Privilege federated-identity check, grant tiers, Cedar policy, Pass Agent Token passthrough - plus the twelve measured issues and their fixes. Mock only; Real is disabled with a reason.",
   "port": 7812,
   "composeFile": "docker-compose.yml",

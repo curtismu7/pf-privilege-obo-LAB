@@ -6,7 +6,7 @@
  "demo": {
   "id": "pf-privilege-obo-lab",
   "name": "PF \u2192 Privilege OBO Lab",
-  "catalog": "D000",
+  "catalog": "D130",
   "baseUrl": "http://127.0.0.1:7812",
   "doctor": "/api/health",
   "tags": [
