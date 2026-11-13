@@ -71,20 +71,19 @@ describe("App", () => {
     expect(screen.getByText("What Privilege does here")).toBeTruthy();
   });
 
-  it("Real mode button is disabled with a reason when unconfigured", async () => {
+  it("Real option is disabled with a reason when unconfigured (the shared TopMenu's mode select)", async () => {
     mockFetch();
     render(<App />);
-    await waitFor(() => expect(screen.getByRole("button", { name: "Real" })).toBeTruthy());
-    const realBtn = screen.getByRole("button", { name: "Real" });
-    expect(realBtn.disabled).toBe(true);
-    expect(realBtn.title).toMatch(/no real/i);
+    const select = await waitFor(() => screen.getByTestId("mode-select"));
+    const realOpt = screen.getByTestId("mode-real");
+    expect(realOpt.disabled).toBe(true);
+    expect(realOpt.title || select.title).toMatch(/no real/i);
   });
 
   it("theme picker sets and clears data-theme", async () => {
     mockFetch();
     render(<App />);
-    await waitFor(() => expect(screen.getByRole("combobox", { name: /theme/i })).toBeTruthy());
-    const select = screen.getByRole("combobox", { name: /theme/i });
+    const select = await waitFor(() => screen.getByTestId("theme-select"));
     fireEvent.change(select, { target: { value: "dark" } });
     expect(document.documentElement.dataset.theme).toBe("dark");
     fireEvent.change(select, { target: { value: "auto" } });
@@ -103,10 +102,10 @@ describe("App", () => {
     expect(result.textContent).toMatch(/scope-search-guard/);
   });
 
-  it("shows the mode toggle in the header", async () => {
+  it("shows the mode toggle in the header (the shared TopMenu's mode select)", async () => {
     mockFetch();
     render(<App />);
-    await waitFor(() => expect(screen.getByRole("button", { name: "Mock" })).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId("mode-select")).toBeTruthy());
   });
 });
 

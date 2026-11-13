@@ -38,6 +38,12 @@ export default function App() {
   const [source, setSource] = useState("mock");
   const [activeScenario, setActiveScenario] = useState(null);
   const [speed, setSpeed] = useState(1);
+  const [theme, setTheme] = useState(() => localStorage.getItem("theme") || "auto");
+  useEffect(() => {
+    if (theme === "auto") delete document.documentElement.dataset.theme;
+    else document.documentElement.dataset.theme = theme;
+    try { localStorage.setItem("theme", theme); } catch { /* none */ }
+  }, [theme]);
   const [presenter, setPresenter] = useState(false);
 
   useEffect(() => {
@@ -82,8 +88,8 @@ export default function App() {
         </nav>
         <div className="shell-right">
           <TopMenu
-            mode={{ value: source === "real" ? "real" : "mock", onChange: (m) => switchMode(m === "real" ? "real" : "mock"), realAvailable: null }}
-            theme={undefined}
+            mode={{ value: source === "real" ? "real" : "mock", onChange: (m) => switchMode(m === "real" ? "real" : "mock"), realAvailable: info.data ? info.data.realAvailable !== false : null, realHint: info.data?.realReason || undefined }}
+            theme={{ value: theme, onChange: setTheme }}
             present={{ active: presenter, onToggle: () => setPresenter((v) => !v), label: "Presenter (Alt+P)" }}
             extra={<label className="speed-control" htmlFor="speed">Speed
               <select id="speed" value={speed} onChange={(e) => setSpeed(Number(e.target.value))}>
