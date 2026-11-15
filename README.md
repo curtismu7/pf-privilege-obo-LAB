@@ -66,7 +66,7 @@ All content here is synthetic (`.example` hosts, invented users).
 ## If the Privilege desktop agent shows "unregistered"
 
 The PingOne Privilege **desktop app** (the one serving the local console at
-`https://local.procyon.ai:8643`) stays registered with the Ping cloud through a background
+local port 8643) stays registered with the Ping cloud through a background
 agent (`ping-helper`). When that agent's device record is deleted or unapproved on the cloud
 side, every Privilege app on this machine loses Real mode: the local console stops serving,
 connections time out, and the desktop app shows the agent as **unregistered**.
@@ -75,7 +75,7 @@ connections time out, and the desktop app shows the agent as **unregistered**.
 
 1. **The desktop app says the agent is unregistered** (banner or the agent status panel), or its
    diagnostics print `✖ Found N errors` with `Device … not found`.
-2. **The local console is down with it**: `https://local.procyon.ai:8643` does not answer
+2. **The local console is down with it**: the local console on port 8643 does not answer
    (connection refused / timeout) even though the PingOne Privilege app is running.
 3. **The agent log loops on one error.** Check `/Library/Logs/Procyon/procyon-agent.log`:
 
@@ -94,13 +94,13 @@ connections time out, and the desktop app shows the agent as **unregistered**.
   tenant sync, or a guard tripping after network churn). The agent cannot re-create it by
   itself: it re-registers only on an enable/disable cycle, and re-registration **waits for a
   human to approve the new device** in the console.
-- Network/VPN blips to `privilege.pingone.com` (`lookup … no such host` in the same log) force
+- Network/VPN blips to the Privilege cloud service host (`lookup … no such host` in the same log) force
   re-registrations and can churn the device identity, making the window for this bigger.
 
 ### How to fix it
 
 1. Open the **PingOne Privilege** desktop app and make sure it is running.
-2. Sign in to the **cloud console**: `https://console.pingone.com/?env=<your-privilege-env-id>`
+2. Sign in to the **cloud console** (the PingOne cloud console, with `?env=<your-privilege-env-id>` for your Privilege environment)
    → launch **PingOne Privilege** → open the **Devices** page.
 3. Find this machine's device (`DeviceName: mac-…`, type MAC). It is either:
    - **pending approval** — click **Approve** (the agent's certificate request is waiting;
@@ -109,7 +109,7 @@ connections time out, and the desktop app shows the agent as **unregistered**.
      reopen the app) so it mints a fresh certificate request, then approve it in the console.
 4. The agent picks up the approval within seconds (watch
    `/Library/Logs/Procyon/procyon-agent.log` for `Device registered with controller`), and the
-   local console at `local.procyon.ai:8643` starts serving again. Real mode in this app works
+   local console on port 8643 starts serving again. Real mode in this app works
    immediately after — no restart of the app needed.
 
 ### If it comes back
