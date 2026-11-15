@@ -318,7 +318,6 @@ input {
   background: var(--surface, rgba(127, 127, 127, 0.12));
   border-radius: 6px;
   padding: 10px 12px;
-  overflow-x: auto;
   white-space: pre-wrap;
   word-break: break-word;
 }

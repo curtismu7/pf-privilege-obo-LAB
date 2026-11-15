@@ -3,6 +3,7 @@ import ReactFlow, { Background, Controls, MarkerType } from "reactflow";
 import "reactflow/dist/style.css";
 import { postJson } from "./api.js";
 import { getDiagram } from "./diagram-data.js";
+import Json from "./components/JsonPane.jsx";
 
 // Studio diagram data (rule 17): nodes/edges come from data/diagram.json
 // (diagram-studio/1 schema) - never hand-built here.
@@ -169,7 +170,7 @@ export default function FlowSim({ catalog, activeScenario, onScenarioDone, speed
           {result.token && result.token.claims && (
             <details>
               <summary>Token claims (mock, labelled)</summary>
-              <pre>{JSON.stringify(result.token.claims, null, 2)}</pre>
+              <Json value={result.token.claims} label="Token claims (mock)" testId="token-claims" hot={["mock"]} />
             </details>
           )}
         </div>
