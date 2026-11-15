@@ -11,6 +11,7 @@ import ChainSteps from "./ChainSteps.jsx";
 import OpeningCard from "./OpeningCard.jsx";
 import { useApi, postJson } from "./api.js";
 import { getDiagram } from "./diagram-data.js";
+import PrivilegeCheck from "./privilege-check/PrivilegeCheck.jsx";
 
 const STUDIO = getDiagram();
 
@@ -108,6 +109,8 @@ export default function App() {
       </header>
       <div className="accent-rule" aria-hidden="true" />
       <main>
+
+        <PrivilegeCheck />
         <SimulationBanner source={source} />
         <OpeningCard opening={data && data.opening} />
         {presenter && (

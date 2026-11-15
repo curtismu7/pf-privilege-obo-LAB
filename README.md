@@ -129,3 +129,19 @@ server-side guard after repeated network drops). Note the times from
 `grep "Delete request recieved" /Library/Logs/Procyon/procyon-agent*.log` and raise it with
  whoever administers the Privilege tenant — re-approving treats the symptom; the deletes have
  to stop for it to stay fixed.
+
+
+---
+
+## Real mode: through the PingOne Privilege gateway
+
+Real mode here is one live call through the SE PingOne Privilege gateway
+(`https://mcpgw.ai-demo.ping-devops.com`) with an agent access key from the shared settings
+file (`~/Development/.env`, or the file `STANDALONE_ENV` names).
+
+**Privilege objects this lab uses:** the door (Agentic App) `aggregate-limited` — the gateway's
+MCP aggregate with a tool filter — at client path `/aggregate-limited/mcp`, called with the
+agent access key `PFO_GW_KEY_LAB_AGENT` (write-only, never shown). **What runs in Real:** the
+**Privilege gateway check** (`POST /api/gateway-check`): one live `tools/list` through the door,
+then one `tools/call` probe of a tool no policy grants, so you see the gateway's own refusal
+shape. Settings keys: `PFO_GW_URL`, `PFO_GW_APPS`, `PFO_GW_KEY_<NAME>`.
