@@ -7,6 +7,10 @@ import { isLoopbackHost } from './safety.js';
 
 let active = null;
 
+let allowedOrigins = new Set();
+export function setAllowedOrigins(origins) { allowedOrigins = new Set(origins ?? []); }
+const originAllowed = (hostname) => [...allowedOrigins].some((o) => { try { return new URL(o).hostname === hostname; } catch { return false; } });
+
 export function installNetguard() {
   if (active) return active;
   const attempts = [];
@@ -44,7 +48,7 @@ export function installNetguard() {
   };
   net.Socket.prototype.connect = function guardedConnect(...args) {
     const host = hostOf(args);
-    if (!isLoopbackHost(host)) { attempts.push(`socket:${host}`); throw new Error(`network blocked: ${host}`); }
+    if (!isLoopbackHost(host) && !originAllowed(host)) { attempts.push(`socket:${host}`); throw new Error(`network blocked: ${host}`); }
     return real.connect.apply(this, args);
   };
   dns.lookup = function guardedLookup(host, ...rest) {
@@ -63,7 +67,7 @@ export function installNetguard() {
   };
   globalThis.fetch = async function guardedFetch(input, init) {
     const url = new URL(typeof input === 'string' || input instanceof URL ? input : input.url);
-    if (!isLoopbackHost(url.hostname)) { attempts.push(`fetch:${url.hostname}`); throw new Error(`network blocked: ${url.hostname}`); }
+    if (!isLoopbackHost(url.hostname) && !originAllowed(url.hostname)) { attempts.push(`fetch:${url.hostname}`); throw new Error(`network blocked: ${url.hostname}`); }
     return real.fetch(input, init);
   };
   // connect(port [, address] [, cb]) fixes the peer; a later send() with no address goes there, so the peer is checked here.

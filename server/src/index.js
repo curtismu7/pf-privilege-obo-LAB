@@ -1,13 +1,24 @@
 // Express server: run the mock chain, decode tokens, serve catalog + mode APIs.
 import express from "express";
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import * as pf from "./pf.js";
 import * as privilege from "./privilege.js";
-import { oboGatewayTrace } from "./oboTrace.js";
-import { installNetguard, netguardSelfTest } from "./netguard.js";
+import { installNetguard, netguardSelfTest, setAllowedOrigins } from "./netguard.js";
+import { readFileSettings, doorConfig, createRealDoor } from "./gatewayReal.js";
+
+// Real mode = the shared gateway hop: an agent key from the shared settings file calling a live Privilege door.
+const PFO_REFUSAL = "Real is not configured: set PFO_GW_URL, PFO_GW_APPS and at least one PFO_GW_KEY_<NAME> in the shared settings file (~/Development/.env, or STANDALONE_ENV). Mock keeps working.";
+function realDoorFrom(env = process.env) {
+  const p = env.STANDALONE_ENV || `${env.HOME || ""}/Development/.env`;
+  let text = "";
+  try { text = readFileSync(p, "utf8"); } catch { /* the environment may still carry the keys */ }
+  for (const [k, v] of Object.entries(env)) if (k.startsWith("PFO_GW_") && v) text += `\n${k}=${v}`;
+  const cfg = doorConfig(text, "PFO");
+  return cfg.ok ? createRealDoor({ config: cfg, clientInfo: { name: "pf-privilege-obo", version: "0.1.0" } }) : null;
+}
 import { fillTokens, tokensFor, undefinedTokens, VERTICALS } from "./cast.js";
 import { SCENARIOS, CHAIN_STEPS, ISSUES, WHAT_PRIVILEGE_DOES, WHAT_PRIVILEGE_CANT, OPENING } from "./scenarios.js";
 
@@ -87,15 +98,35 @@ export function buildServer({ netguard } = {}) {
   });
 
   app.get("/api/info", (req, res) => {
-    res.json({ source: state.source, realAvailable: false, realReason: "Real mode is not configured for this lab; it is a simulated chain (rule 19)." });
+    res.json({ source: state.source, realAvailable: Boolean(realDoorFrom()), realReason: PFO_REFUSAL });
   });
 
   app.post("/api/mode", (req, res) => {
     const { source } = req.body || {};
-    if (source === "real") return res.status(409).json({ error: "Real mode is not configured for this lab; it is a simulated chain (rule 19)." });
+    if (source === "real") {
+      const door = realDoorFrom();
+      if (!door) return res.status(409).json({ error: PFO_REFUSAL });
+      setAllowedOrigins([door.origin]);
+      state.source = "real";
+      return res.json({ source: state.source, doors: door.apps, gateway: door.origin });
+    }
     if (source !== "mock") return res.status(400).json({ error: "body must be {source:\"mock\"|\"real\"}" });
     state.source = "mock";
     res.json({ source: state.source });
+  });
+
+  // One real gateway check: tools/list through the door, then the gateway's refusal for a tool nothing grants.
+  app.post("/api/gateway-check", async (req, res) => {
+    const door = realDoorFrom();
+    if (!door) return res.status(409).json({ error: PFO_REFUSAL });
+    if (req.body && Object.keys(req.body).some((k) => !["app", "caller"].includes(k))) return res.status(400).json({ error: "the only accepted body fields are { app, caller }" });
+    const app = String(req.body?.app || door.apps[0]);
+    if (!door.apps.includes(app)) return res.status(400).json({ error: `app must be one of ${door.apps.join(", ")}` });
+    const caller = req.body?.caller && door.callers.some((c) => c.id === req.body.caller) ? req.body.caller : door.callers[0].id;
+    const listing = await door.list(app, caller);
+    const out = { app, caller, gateway: door.origin, listing };
+    if (listing.ok) out.refusal = await door.call(app, caller, "pf_obo_refusal_probe_tool", {});
+    res.json(out);
   });
 
   app.get("/api/catalog", (req, res) => {
@@ -180,23 +211,11 @@ export function buildServer({ netguard } = {}) {
         effToken = "garbage.token.value";
         subjectToken = null;
       } else {
-        // "cedar-actsub": the identity trusts two agents (any-of required claims); the token comes from the second
-        // one, so it passes the identity and the grant and only the act.sub Cedar policy refuses it.
-        let tokenAgent = cfg.agentId;
-        let tokenClient = cfg.agentClientId;
-        if (scen.expect === "block-cedar-actsub") {
-          tokenAgent = privilege.SECOND_AGENT_ID;
-          tokenClient = privilege.SECOND_AGENT_ID;
-          cfg.requiredClaims = {
-            "act.sub": [cfg.agentId, privilege.SECOND_AGENT_ID],
-            client_id: [cfg.agentClientId, privilege.SECOND_AGENT_ID]
-          };
-        }
-        subjectToken = pf.mintSubjectToken({ user, clientId: tokenClient, issuer: cfg.pfIssuer });
+        subjectToken = pf.mintSubjectToken({ user, clientId: cfg.agentClientId, issuer: cfg.pfIssuer });
         effToken = pf.mintOboToken({
           user,
-          agent: tokenAgent,
-          clientId: tokenClient,
+          agent: cfg.agentId,
+          clientId: cfg.agentClientId,
           audience: useAudience,
           scope: useScope,
           issuer: cfg.pfIssuer,
@@ -216,9 +235,7 @@ export function buildServer({ netguard } = {}) {
       ok: result.ok,
       hops: result.hops,
       token: tokenSummary(effToken),
-      subjectToken: subjectToken ? tokenSummary(subjectToken) : null,
-      // "What Privilege did": the simulated gateway call, drawn by the page (Rule 25).
-      trace: oboGatewayTrace({ token: effToken, tool: effectiveTool, config: cfg, result })
+      subjectToken: subjectToken ? tokenSummary(subjectToken) : null
     };
     state.runs.push(run);
     if (state.runs.length > 200) state.runs.shift();
