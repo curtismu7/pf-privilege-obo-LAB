@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 import React from "react";
 import App from "../web/src/App.jsx";
@@ -7,6 +7,7 @@ import ScenarioPicker from "../web/src/ScenarioPicker.jsx";
 import IssuesPanel from "../web/src/IssuesPanel.jsx";
 import ChainSteps from "../web/src/ChainSteps.jsx";
 import Banner from "../web/src/Banner.jsx";
+import { setJsonView } from "../web/src/components/JsonPane.jsx";
 
 beforeAll(() => {
   global.ResizeObserver = class {
@@ -58,6 +59,8 @@ function mockFetch(overrides = {}) {
   return calls;
 }
 
+// The Form | JSON choice is shared module state: every test names the view it reads.
+beforeEach(() => setJsonView("raw"));
 afterEach(() => cleanup());
 
 describe("App", () => {
@@ -100,6 +103,12 @@ describe("App", () => {
     expect(result.textContent).toMatch(/REFUSED/);
     expect(result.textContent).toMatch(/HTTP 400/);
     expect(result.textContent).toMatch(/scope-search-guard/);
+    // The token claims go through the shared JSON pane (JSON view here): key and value as colored tokens, Form | JSON toggle.
+    const claims = screen.getByTestId("token-claims");
+    expect(claims.textContent).toBe('{\n  "sub": "u"\n}');
+    expect(screen.getByTestId("token-claims-box").querySelector(".jsonbox__toggle").textContent).toBe("FormJSON");
+    fireEvent.click(screen.getByTestId("token-claims-formatted"));
+    expect(screen.getByTestId("token-claims").textContent).toBe("subu");
   });
 
   it("shows the mode toggle in the header (the shared TopMenu's mode select)", async () => {
@@ -128,6 +137,16 @@ describe("OpeningCard", () => {
     expect(screen.queryByText(/"jsonrpc"/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /Show raw JSON-RPC/i }));
     expect(screen.getByText(/"jsonrpc"/)).toBeTruthy();
+  });
+
+  it("shows the tool call and its arguments, and the JSON-RPC, in the shared Form | JSON pane", () => {
+    render(<OpeningCard opening={{ ...opening, call: { ...opening.call, args: '{ "index": "i", "query": "q" }' } }} />);
+    expect(screen.getByText("tools/call SearchIndexTool")).toBeTruthy();
+    expect(screen.getByTestId("mcp-args").textContent).toBe('{ "index": "i", "query": "q" }');
+    fireEvent.click(screen.getByTestId("mcp-args-formatted"));
+    expect(screen.getByTestId("mcp-args").textContent).toBe("indexiqueryq");
+    fireEvent.click(screen.getByRole("button", { name: /Show raw JSON-RPC/i }));
+    expect(screen.getByTestId("mcp-jsonrpc-box").querySelector(".jsonbox__toggle").textContent).toBe("FormJSON");
   });
 });
 

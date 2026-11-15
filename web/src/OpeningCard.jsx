@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import Json from "./components/JsonPane.jsx";
 
 // Opening card: the story starts on the AI side - an agent tries to call an
 // MCP tool. Everything else on the page explains how that one call proves
@@ -18,9 +19,14 @@ export default function OpeningCard({ opening }) {
           <span className="mcp-arrow">→</span>
           <span className="chip chip-mcp">MCP server</span>
         </div>
-        <pre className="mcp-request">
-          {showRaw ? opening.call.jsonrpc : `tools/call  ${opening.call.tool}\n${opening.call.args}`}
-        </pre>
+        {showRaw ? (
+          <Json value={opening.call.jsonrpc} label="JSON-RPC request" testId="mcp-jsonrpc" hot={["method", "name"]} />
+        ) : (
+          <>
+            <div className="mcp-request">{`tools/call  ${opening.call.tool}`}</div>
+            <Json value={opening.call.args} label="Tool arguments" testId="mcp-args" hot={["index", "query"]} />
+          </>
+        )}
         <div className="mcp-call-footer">
           <button type="button" onClick={() => setShowRaw((v) => !v)}>
             {showRaw ? "Show summary" : "Show raw JSON-RPC"}
