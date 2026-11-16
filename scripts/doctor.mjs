@@ -56,6 +56,13 @@ try {
   });
   const cedar = await cedarRes.json();
   ok("cedar block 400 with policy name", cedar.http === 400 && /scope-search-guard/.test(cedar.hops.at(-1).reason));
+  const actSubRes = await fetch(`${base}/api/run`, {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: base },
+    body: JSON.stringify({ scenario: "cedar-actsub" })
+  });
+  const actSub = await actSubRes.json();
+  ok("cedar act.sub block 400 with policy name", actSub.http === 400 && /act-sub-guard/.test(actSub.hops.at(-1).reason));
 
   const real = await fetch(`${base}/api/mode`, {
     method: "POST",

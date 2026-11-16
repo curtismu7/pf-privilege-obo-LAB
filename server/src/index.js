@@ -180,11 +180,23 @@ export function buildServer({ netguard } = {}) {
         effToken = "garbage.token.value";
         subjectToken = null;
       } else {
-        subjectToken = pf.mintSubjectToken({ user, clientId: cfg.agentClientId, issuer: cfg.pfIssuer });
+        // "cedar-actsub": the identity trusts two agents (any-of required claims); the token comes from the second
+        // one, so it passes the identity and the grant and only the act.sub Cedar policy refuses it.
+        let tokenAgent = cfg.agentId;
+        let tokenClient = cfg.agentClientId;
+        if (scen.expect === "block-cedar-actsub") {
+          tokenAgent = privilege.SECOND_AGENT_ID;
+          tokenClient = privilege.SECOND_AGENT_ID;
+          cfg.requiredClaims = {
+            "act.sub": [cfg.agentId, privilege.SECOND_AGENT_ID],
+            client_id: [cfg.agentClientId, privilege.SECOND_AGENT_ID]
+          };
+        }
+        subjectToken = pf.mintSubjectToken({ user, clientId: tokenClient, issuer: cfg.pfIssuer });
         effToken = pf.mintOboToken({
           user,
-          agent: cfg.agentId,
-          clientId: cfg.agentClientId,
+          agent: tokenAgent,
+          clientId: tokenClient,
           audience: useAudience,
           scope: useScope,
           issuer: cfg.pfIssuer,

@@ -34,8 +34,20 @@ export const DEFAULT_CONFIG = {
     state: "Active",
     tool: "SearchIndexTool",
     needsScope: "search:example"
+  },
+  // Second AI policy: reads the token's nested act.sub (context.token.claims["act.sub"] in Cedar).
+  // Validated on the real console 2026-11-16 (Candidate); this lab only simulates it.
+  cedarClaimPolicy: {
+    name: "act-sub-guard",
+    state: "Active",
+    tool: "SearchIndexTool",
+    claim: "act.sub",
+    allowed: "agent-client-example"
   }
 };
+
+// A second agent the identity also trusts in the "cedar-actsub" scenario (required claims list two values).
+export const SECOND_AGENT_ID = "agent-b-example";
 
 const ALL_TOOLS = ["ListIndexTool", "SearchIndexTool", "CountTool", "ClusterHealthTool", "IndexMappingTool", "GetShardsTool", "ExplainTool", "MsearchTool", "GenericApiTool"];
 
@@ -61,7 +73,9 @@ export function nhiCheck(token, config, verifyFn) {
     for (const part of claim.split(".")) {
       actual = actual && typeof actual === "object" ? actual[part] : undefined;
     }
-    if (actual !== expect) {
+    // A list of values means any-of, as in the console's RequiredClaims.
+    const matches = Array.isArray(expect) ? expect.includes(actual) : actual === expect;
+    if (!matches) {
       return { ok: false, stage: "nhi", reason: `workload token rejected: required claim "${claim}" does not match` };
     }
   }
@@ -94,13 +108,29 @@ export function grantCheck(payload, config) {
 // Mirrors "aipolicy: denied ... (policies=[...])".
 export function cedarCheck(tool, payload, config) {
   const c = config.cedarPolicy;
-  if (c.state !== "Active" || tool !== c.tool) return { ok: true, stage: "cedar" };
+  if (c.state !== "Active" || tool !== c.tool) return claimCedarCheck(tool, payload, config);
   const scopes = stateToScopes(payload.scope);
   if (!scopes.includes(c.needsScope)) {
     return {
       ok: false,
       stage: "cedar",
       reason: `action denied by policy: ${c.tool} needs the ${c.needsScope} scope in the agent's token (policies=[${c.name}:1])`
+    };
+  }
+  return claimCedarCheck(tool, payload, config);
+}
+
+// Cedar claim check: forbid the tool unless the token's act.sub is the allowed agent.
+// Mirrors: forbid (...) unless { context.token.claims has "act.sub" && context.token.claims["act.sub"].contains("<agent>") };
+function claimCedarCheck(tool, payload, config) {
+  const c = config.cedarClaimPolicy;
+  if (!c || c.state !== "Active" || tool !== c.tool) return { ok: true, stage: "cedar" };
+  const actual = payload && payload.act && typeof payload.act === "object" ? payload.act.sub : undefined;
+  if (actual !== c.allowed) {
+    return {
+      ok: false,
+      stage: "cedar",
+      reason: `action denied by policy: ${c.tool} requires ${c.claim} to be ${c.allowed} (policies=[${c.name}:1])`
     };
   }
   return { ok: true, stage: "cedar" };

@@ -56,8 +56,8 @@ export const CHAIN_STEPS = [
     id: "cedar",
     title: "5. AI policy (Cedar) on the MCP call",
     lane: "privilege",
-    what: "Back to the tool call from step 0: an Active Cedar policy can refuse THIS tool unless the token carries a scope. Cedar reads token scopes today; other claims are coming in a later release.",
-    claim: "SearchIndexTool needs search:example - or the call dies with JSON-RPC -32600"
+    what: "Back to the tool call from step 0: an Active Cedar policy can refuse THIS tool unless the token carries a scope (context.token.scopes) or a claim such as act.sub (context.token.claims[\"act.sub\"]). The claims form validated on the real console on 2026-11-16; no real token has been through it yet.",
+    claim: "SearchIndexTool needs search:example and act.sub = the approved agent - or the call dies with JSON-RPC -32600"
   },
   {
     id: "backend",
@@ -127,10 +127,10 @@ export const ISSUES = [
   },
   {
     id: "cedar-claims",
-    severity: "limit",
-    title: "Cedar reads token scopes only (today)",
-    what: "context.token.claims (act.sub, client_id) is coming in a later release. Today: claim checks live in the NHI required claims and the grant's RequiredClaims, exact match only.",
-    fix: "Use RequiredClaims on grant rules for claim-based tiers now."
+    severity: "warn",
+    title: "Cedar can read token claims, validated but not run on a real token",
+    what: "On 2026-11-16 the real console's AI Policy template \"Restrict a tool to tokens carrying a claim\" generated context.token.claims[\"act.sub\"].contains(\"<agent>\") and the controller validated it (Candidate, never enforced). Nobody has sent a real PingFederate token through an Active policy yet, so \"a matching act.sub is allowed, a different one is refused\" is simulated here, not measured. PingFederate must also emit act as an object.",
+    fix: "RequiredClaims on the identity or the grant rule does the same job earlier and is verified end to end. Use Cedar when the claim decision belongs with one tool."
   },
   {
     id: "candidate-state",
@@ -161,6 +161,7 @@ export const WHAT_PRIVILEGE_DOES = [
   "Holds no secret for the agent: the PF token is the only credential",
   "Decides which tools, per agent app, and tiers them by token scope",
   "Blocks one tool by scope with an Active Cedar policy",
+  "Blocks one tool by the agent's act.sub with an Active Cedar policy (validated on the real console, simulated here)",
   "Passes the token through unchanged - the backend verifies it too",
   "Discovers the tools from the first accepted agent call",
   "Switches the agent off: disable the identity or revoke the key"
@@ -169,7 +170,6 @@ export const WHAT_PRIVILEGE_DOES = [
 export const WHAT_PRIVILEGE_CANT = [
   "Exchange tokens: the OBO token must come from PingFederate",
   "Down-scope the token it forwards",
-  "Run Cedar on other token claims yet (scopes only today)",
   "Wildcard audiences",
   "Keep API-POSTed grants alive (they are deleted within seconds)"
 ];
@@ -178,6 +178,7 @@ export const SCENARIOS = [
   { id: "happy-read", label: "OBO happy path (read tier)", tool: "ListIndexTool", scope: "mcp", expect: "allow" },
   { id: "happy-admin", label: "OBO admin tier (more tools)", tool: "ClusterHealthTool", scope: "mcp admin:example", expect: "allow" },
   { id: "cedar-block", label: "Cedar blocks by scope", tool: "SearchIndexTool", scope: "mcp", expect: "block-cedar" },
+  { id: "cedar-actsub", label: "Cedar blocks by act.sub (second agent)", tool: "SearchIndexTool", scope: "mcp search:example", expect: "block-cedar-actsub" },
   { id: "act-text", label: "act emitted as text \"{}\"", tool: "SearchIndexTool", scope: "mcp", expect: "reject-act" },
   { id: "wrong-audience", label: "Wrong audience (default ATM served it)", tool: "SearchIndexTool", scope: "mcp", expect: "reject-audience" },
   { id: "no-grant", label: "No grant rule matched", tool: "SearchIndexTool", scope: "billing:other", expect: "reject-grant" },
