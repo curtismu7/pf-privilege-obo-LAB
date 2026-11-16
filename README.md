@@ -17,6 +17,11 @@ for real.
 Eight scenarios: happy path (read + admin tiers), Cedar block, `act` emitted as text, wrong
 audience, no matching grant, garbage bearer, autonomous shape (no user, no `act`).
 
+Under each run the page shows **What Privilege did** (the family's shared trace panel): the request
+the agent sent to the simulated gateway, the reply, and the four checks in between (workload token,
+grant, Cedar, backend), each marked `checked` because the lab's own simulated gateway computed it
+and `skipped` when an earlier check refused the call. No token is shown, only its length.
+
 The Issues panel is the customer story: what Privilege does here, what it can't (yet), and every
 trap that cost us time — with the fix for each.
 
@@ -53,6 +58,9 @@ claims and a sha256/8 hash only. Mock tokens are labelled (`mock: true`).
 ## Tests
 
 - `test/server.test.js` — 18 node --test tests (chain scenarios, host/origin guards, token hygiene).
+- `test/gateway-trace.test.js` + `test/gateway-trace-panel.test.jsx` (and the vendored
+  `web/src/gateway-trace/gateway-trace.test.jsx`) — the vendored files' sha256 pin, the trace of
+  every scenario through `assertTrace`, no token in a trace, and the panel in the page.
 - `test/web.test.jsx` + `test/flowsim-logic.test.jsx` — 11 vitest tests (banner, mode toggle,
   theme picker, scenario runs, Reset semantics, scenario-tool precedence).
 

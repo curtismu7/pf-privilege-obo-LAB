@@ -4,6 +4,7 @@ import "reactflow/dist/style.css";
 import { postJson } from "./api.js";
 import { getDiagram } from "./diagram-data.js";
 import Json from "./components/JsonPane.jsx";
+import GatewayTrace from "./gateway-trace/GatewayTrace";
 
 // Studio diagram data (rule 17): nodes/edges come from data/diagram.json
 // (diagram-studio/1 schema) - never hand-built here.
@@ -175,6 +176,10 @@ export default function FlowSim({ catalog, activeScenario, onScenarioDone, speed
           )}
         </div>
       )}
+      <GatewayTrace
+        source="mock"
+        exchanges={result && result.trace ? [{ step: 1, title: `Agent calls the gateway: tools/call ${result.tool}`, status: result.trace.response ? result.trace.response.status : null, trace: result.trace }] : []}
+      />
     </section>
   );
 }
