@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import TopMenu from "./top-menu/TopMenu.jsx";
+import VerifyMark from "./components/VerifyMark.jsx";
 import "./top-menu/top-menu.css";
 import SimulationBanner, { ModeToggle } from "./Banner.jsx";
 import ThemePicker from "./ThemePicker.jsx";
@@ -99,7 +100,9 @@ export default function App() {
                 <option value={4}>4×</option>
               </select>
             </label>}
-          />
+          >
+            <VerifyMark id="pf-privilege-obo-lab" />
+          </TopMenu>
         </div>
       </header>
       <div className="accent-rule" aria-hidden="true" />
