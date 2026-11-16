@@ -68,6 +68,44 @@ test("cedar-block: Active policy refuses SearchIndexTool without the scope", asy
   });
 });
 
+test("cedar-actsub: a second trusted agent passes the identity and the grant, then the act.sub policy refuses it", async () => {
+  await withServer(async (j) => {
+    const r = await j("/api/run", { scenario: "cedar-actsub" });
+    assert.equal(r.body.http, 400);
+    const stages = r.body.hops.map((h) => `${h.stage}:${h.ok}`);
+    assert.ok(stages.includes("nhi:true"), "the identity must accept the second agent");
+    assert.ok(stages.includes("grant:true"), "the grant must allow the tool");
+    const stopped = r.body.hops.at(-1);
+    assert.match(stopped.reason, /-32600/);
+    assert.match(stopped.reason, /act-sub-guard/);
+    assert.match(stopped.reason, /act\.sub to be agent-client-example/);
+    assert.doesNotMatch(stopped.reason, /scope-search-guard/, "the scope policy must not be the one that refused");
+  });
+});
+
+test("cedar-actsub: the approved agent with the scope is NOT refused by the act.sub policy", async () => {
+  await withServer(async (j) => {
+    const r = await j("/api/run", { scenario: "happy-read", tool: "SearchIndexTool", scope: "mcp search:example" });
+    assert.equal(r.body.http, 200);
+    assert.equal(r.body.ok, true);
+  });
+});
+
+test("cedar-actsub: without the identity listing the second agent, it is refused at the NHI, not Cedar", async () => {
+  await withServer(async (j) => {
+    // Same token shape, but through the normal scenario config (required claims list one agent only).
+    const token = pf.mintOboToken({
+      user: "user-a", agent: "agent-b-example", clientId: "agent-b-example",
+      audience: "https://gateway.example.com/mcp-example/mcp", scope: "mcp search:example", issuer: "https://pf.example.com"
+    });
+    const r = await j("/api/run", { token, tool: "SearchIndexTool" });
+    assert.equal(r.body.http, 401);
+    const nhi = r.body.hops.find((h) => h.stage === "nhi");
+    assert.equal(nhi.ok, false);
+    assert.match(nhi.reason, /required claim "(act\.sub|client_id)" does not match/);
+  });
+});
+
 test("act emitted as text is refused at the NHI with the measured log reason", async () => {
   await withServer(async (j) => {
     const r = await j("/api/run", { scenario: "act-text" });
@@ -145,10 +183,10 @@ test("catalog serves steps, scenarios and issues", async () => {
     const body = await res.json();
     assert.equal(body.steps.length, 7);
     assert.ok(body.opening && body.opening.headline && /MCP tool/.test(body.opening.headline));
-    assert.equal(body.scenarios.length, 8);
+    assert.equal(body.scenarios.length, 9);
     assert.ok(body.issues.length >= 10);
     assert.ok(body.does.length >= 5);
-    assert.ok(body.cant.length >= 5);
+    assert.ok(body.cant.length >= 4);
   });
 });
 

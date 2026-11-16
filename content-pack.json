@@ -200,7 +200,7 @@
   {
    "id": "card-what-privilege-does",
    "label": "What Privilege does here",
-   "description": "Trusts PF as the issuer, accepts only the pinned agent, holds no secret for the agent, tiers tools by scope, blocks one tool with Cedar, forwards the token unchanged, discovers tools on the first accepted call.",
+   "description": "Trusts PF as the issuer, accepts only the pinned agent, holds no secret for the agent, tiers tools by scope, blocks one tool with Cedar (by scope, or by act.sub: validated on the real console, simulated here), forwards the token unchanged, discovers tools on the first accepted call.",
    "group": "concept",
    "action": {
     "type": "route",
@@ -216,7 +216,7 @@
   {
    "id": "card-what-privilege-cant",
    "label": "What Privilege can't (yet)",
-   "description": "Does not exchange tokens (PF does), cannot down-scope the forwarded token, Cedar reads scopes only today, no wildcard audiences, deletes API-POSTed grants.",
+   "description": "Does not exchange tokens (PF does), cannot down-scope the forwarded token, no wildcard audiences, deletes API-POSTed grants.",
    "group": "concept",
    "action": {
     "type": "route",
@@ -253,7 +253,7 @@
   {
    "id": "S02",
    "title": "Blocked: Cedar on token scopes",
-   "say": "The grant let the tool through; the Active Cedar policy refused it. Today Cedar reads scopes only - other claims are coming in a later release."
+   "say": "The grant let the tool through; the Active Cedar policy refused it. Cedar can also read claims such as act.sub (context.token.claims), validated on the real console on 2026-11-16; this lab simulates that policy."
   },
   {
    "id": "S03",

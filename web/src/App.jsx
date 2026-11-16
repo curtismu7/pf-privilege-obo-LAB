@@ -23,6 +23,7 @@ function presenterSay(activeScenario) {
     "happy-read": 1,
     "happy-admin": 1,
     "cedar-block": 5,
+    "cedar-actsub": 5,
     "act-text": 3,
     "wrong-audience": 3,
     "no-grant": 4,

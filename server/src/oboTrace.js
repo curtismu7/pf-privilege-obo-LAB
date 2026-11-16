@@ -18,7 +18,7 @@ export function oboGatewayTrace({ token, tool, config, result }) {
   const decisions = [
     decide("nhi", "nhi", "Workload token (federated identity)", () => "issuer, signature, audience, required claims and lifetime all matched"),
     decide("grant", "grant", "Grant", (h) => `rule ${h.rule} matched the token's scope; it allows ${h.tools.length} tools`),
-    decide("cedar", "cedar", "AI policy (Cedar)", () => `policy ${config.cedarPolicy.name} did not refuse ${tool}`),
+    decide("cedar", "cedar", "AI policy (Cedar)", () => `policies ${config.cedarPolicy.name}, ${config.cedarClaimPolicy.name} did not refuse ${tool}`),
     decide("backend", "backend", "Backend verification (Pass Agent Token)", () => "the backend verified the forwarded token and its audience")
   ];
 

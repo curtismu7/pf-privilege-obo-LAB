@@ -1,5 +1,7 @@
 # pf-privilege-obo-LAB
 
+Tier: Demo
+
 Demo-tier standalone lab: the **PingFederate → Privilege on-behalf-of (OBO) chain**, simulated.
 An AI agent acts for a signed-in user; the lab shows how the user's identity, the agent's identity
 and Privilege's enforcement fit together on one screen, plus the twelve issues we hit building it
@@ -11,10 +13,10 @@ for real.
 2. RFC 8693 token exchange — OBO token: `sub` = user, `act.sub` = agent, `aud` = the agent app URL.
 3. Privilege NHI check — issuer/JWKS, exact audience, required claims (`act.sub`, `client_id`), max lifetime.
 4. Grant check — tools per agent app, tiered by token scope.
-5. Cedar AI policy — one tool blocked unless the token carries the scope.
+5. Cedar AI policy — one tool blocked unless the token carries the scope, and unless `act.sub` is the approved agent (the claims form is validated on the real console, simulated here).
 6. Pass Agent Token — the token is forwarded unchanged; the backend verifies it itself.
 
-Eight scenarios: happy path (read + admin tiers), Cedar block, `act` emitted as text, wrong
+Nine scenarios: happy path (read + admin tiers), Cedar block by scope, Cedar block by `act.sub` (a second trusted agent), `act` emitted as text, wrong
 audience, no matching grant, garbage bearer, autonomous shape (no user, no `act`).
 
 Under each run the page shows **What Privilege did** (the family's shared trace panel): the request
