@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import * as pf from "./pf.js";
 import * as privilege from "./privilege.js";
+import { oboGatewayTrace } from "./oboTrace.js";
 import { installNetguard, netguardSelfTest } from "./netguard.js";
 import { fillTokens, tokensFor, undefinedTokens, VERTICALS } from "./cast.js";
 import { SCENARIOS, CHAIN_STEPS, ISSUES, WHAT_PRIVILEGE_DOES, WHAT_PRIVILEGE_CANT, OPENING } from "./scenarios.js";
@@ -203,7 +204,9 @@ export function buildServer({ netguard } = {}) {
       ok: result.ok,
       hops: result.hops,
       token: tokenSummary(effToken),
-      subjectToken: subjectToken ? tokenSummary(subjectToken) : null
+      subjectToken: subjectToken ? tokenSummary(subjectToken) : null,
+      // "What Privilege did": the simulated gateway call, drawn by the page (Rule 25).
+      trace: oboGatewayTrace({ token: effToken, tool: effectiveTool, config: cfg, result })
     };
     state.runs.push(run);
     if (state.runs.length > 200) state.runs.shift();
