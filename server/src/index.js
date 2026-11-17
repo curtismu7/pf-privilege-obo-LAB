@@ -20,6 +20,7 @@ function realDoorFrom(env = process.env) {
   return cfg.ok ? createRealDoor({ config: cfg, clientInfo: { name: "pf-privilege-obo", version: "0.1.0" } }) : null;
 }
 import { fillTokens, tokensFor, undefinedTokens, VERTICALS } from "./cast.js";
+import { oboGatewayTrace } from "./oboTrace.js";
 import { SCENARIOS, CHAIN_STEPS, ISSUES, WHAT_PRIVILEGE_DOES, WHAT_PRIVILEGE_CANT, OPENING } from "./scenarios.js";
 
 const state = { source: "mock", runs: [], workspaceId: process.env.LAB_WORKSPACE_ID || "default" };
@@ -211,11 +212,23 @@ export function buildServer({ netguard } = {}) {
         effToken = "garbage.token.value";
         subjectToken = null;
       } else {
-        subjectToken = pf.mintSubjectToken({ user, clientId: cfg.agentClientId, issuer: cfg.pfIssuer });
+        // "cedar-actsub": the identity trusts two agents (any-of required claims); the token comes from the second
+        // one, so it passes the identity and the grant and only the act.sub Cedar policy refuses it.
+        let tokenAgent = cfg.agentId;
+        let tokenClient = cfg.agentClientId;
+        if (scen.expect === "block-cedar-actsub") {
+          tokenAgent = privilege.SECOND_AGENT_ID;
+          tokenClient = privilege.SECOND_AGENT_ID;
+          cfg.requiredClaims = {
+            "act.sub": [cfg.agentId, privilege.SECOND_AGENT_ID],
+            client_id: [cfg.agentClientId, privilege.SECOND_AGENT_ID]
+          };
+        }
+        subjectToken = pf.mintSubjectToken({ user, clientId: tokenClient, issuer: cfg.pfIssuer });
         effToken = pf.mintOboToken({
           user,
-          agent: cfg.agentId,
-          clientId: cfg.agentClientId,
+          agent: tokenAgent,
+          clientId: tokenClient,
           audience: useAudience,
           scope: useScope,
           issuer: cfg.pfIssuer,
@@ -235,7 +248,9 @@ export function buildServer({ netguard } = {}) {
       ok: result.ok,
       hops: result.hops,
       token: tokenSummary(effToken),
-      subjectToken: subjectToken ? tokenSummary(subjectToken) : null
+      subjectToken: subjectToken ? tokenSummary(subjectToken) : null,
+      // "What Privilege did": the simulated gateway call, drawn by the page (Rule 25).
+      trace: oboGatewayTrace({ token: effToken, tool: effectiveTool, config: cfg, result })
     };
     state.runs.push(run);
     if (state.runs.length > 200) state.runs.shift();
