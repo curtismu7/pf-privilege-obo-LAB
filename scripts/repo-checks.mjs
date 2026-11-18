@@ -45,7 +45,7 @@ function walk(dir, out = []) {
 // keep its sha pinned against drift (the vendored-sha check below).
 // The vendored conformance gate and the family attribution checker quote the
 // patterns they enforce (org names, attribution lines); skip them the same way.
-const VENDORED_ALLOWED = new Set(["standalone-ui.css", "demo-kit-conformance.mjs", "check-no-ai-attribution.sh", "safety.js"]);
+const VENDORED_ALLOWED = new Set(["standalone-ui.css", "demo-kit-conformance.mjs", "check-no-ai-attribution.sh", "safety.js", "FloatingDialog.jsx", "floating-dialog.css", "floating-dialog.test.jsx", "geometry.js", "useFloatingPanel.js", "TalkTrackDialog.jsx"]); // the shared floating-dialog components mention their origin (AI-DEMO2) in comments by design; they are pinned by sha
 
 let files = 0;
 for (const file of walk(root)) {
