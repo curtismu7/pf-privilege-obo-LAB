@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import TopMenu from "./top-menu/TopMenu.jsx";
+import TalkTrackDialog from "./talk-track/TalkTrackDialog.jsx";
 import VerifyMark from "./components/VerifyMark.jsx";
 import "./top-menu/top-menu.css";
 import SimulationBanner, { ModeToggle } from "./Banner.jsx";
@@ -17,6 +18,7 @@ const STUDIO = getDiagram();
 
 // Presenter mode (rule 3): hides the intro copy and shows the talk-track line
 // for the current step while presenting.
+const talkSteps = (STUDIO.steps || []).map((st, i) => ({ id: `step-${i + 1}`, title: st.title, say: st.what }));
 function presenterSay(activeScenario) {
   const steps = STUDIO.steps || [];
   if (!activeScenario) return steps.length ? `Start: ${steps[0].title}. ${steps[0].what}` : null;
@@ -48,6 +50,7 @@ export default function App() {
     try { localStorage.setItem("theme", theme); } catch { /* none */ }
   }, [theme]);
   const [presenter, setPresenter] = useState(false);
+  const [talkOpen, setTalkOpen] = useState(false);
 
   useEffect(() => {
     const onKey = (e) => {
@@ -94,6 +97,7 @@ export default function App() {
             mode={{ value: source === "real" ? "real" : "mock", onChange: (m) => switchMode(m === "real" ? "real" : "mock"), realAvailable: info.data ? info.data.realAvailable !== false : null, realHint: info.data?.realReason || undefined }}
             theme={{ value: theme, onChange: setTheme }}
             present={{ active: presenter, onToggle: () => setPresenter((v) => !v), label: "Presenter (Alt+P)" }}
+          talkTrack={{ active: talkOpen, onToggle: () => setTalkOpen((v) => !v) }}
             extra={<label className="speed-control" htmlFor="speed">Speed
               <select id="speed" value={speed} onChange={(e) => setSpeed(Number(e.target.value))}>
                 <option value={0.5}>0.5×</option>
@@ -126,6 +130,8 @@ export default function App() {
       <footer className="app-footer">
         Demo tier · everything simulated · mock tokens labelled · raw token bodies stay server-side
       </footer>
+
+      <TalkTrackDialog isOpen={talkOpen} onClose={() => setTalkOpen(false)} talk={talkSteps} />
     </div>
   );
 }
