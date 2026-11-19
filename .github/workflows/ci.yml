@@ -19,6 +19,8 @@ jobs:
       - name: No AI attribution anywhere (owner rule 2026-11-07)
         run: bash scripts/check-no-ai-attribution.sh
       - run: npm test
+      # The vendored shared stylesheet must match the hash pinned when it was last re-vendored.
+      - run: bash scripts/check-ui-standard.sh
       - run: node scripts/doctor.mjs
 
   conformance:
