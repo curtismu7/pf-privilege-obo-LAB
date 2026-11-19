@@ -1,8 +1,27 @@
+/* The card's own tokens: fallbacks live in the definitions, uses read var(). */
+:root {
+  --obo-band: var(--surface, rgba(127, 127, 127, 0.12));
+  --obo-band-2: var(--surface, rgba(127, 127, 127, 0.15));
+  --obo-warn-edge: #b58a00;
+  --obo-gradient: linear-gradient(90deg, #b3261e, #7a1410);
+  --obo-ok-edge: #1a7f37;
+  --obo-bad-edge: #d02020;
+  --accent: var(--accent);
+  --box-dark: var(--box-dark);
+  --control-border: var(--control-border);
+  --lane-agent: var(--lane-agent);
+  --lane-mcp: var(--lane-mcp);
+  --lane-privilege: var(--lane-privilege);
+  --text-muted: var(--text-muted);
+  --obo-on-accent: #fff;
+  --obo-on-dark: #fff;
+}
+
 /* App-specific styles on top of the vendored family stylesheet (theme tokens only). */
 
 .sim-banner {
-  border: 1px solid var(--control-border, #888);
-  border-left: 4px solid var(--accent, #b3261e);
+  border: 1px solid var(--control-border);
+  border-left: 4px solid var(--accent);
   padding: 10px 14px;
   border-radius: 8px;
   margin: 12px 0;
@@ -15,7 +34,7 @@
 }
 
 .mode-btn {
-  border: 1px solid var(--control-border, #888);
+  border: 1px solid var(--control-border);
   background: transparent;
   color: inherit;
   padding: 4px 12px;
@@ -24,14 +43,14 @@
 }
 
 .mode-btn.pressed {
-  background: var(--accent, #b3261e);
-  color: #fff;
+  background: var(--accent);
+  color: var(--obo-on-accent);
 }
 
 .mode-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
-  border-color: var(--control-border, #888);
+  border-color: var(--control-border);
 }
 
 .shell-bar {
@@ -40,13 +59,13 @@
   gap: 16px;
   flex-wrap: wrap;
   padding: 10px 16px;
-  background: var(--box-dark, #1c1c1c);
-  color: #fff;
+  background: var(--box-dark);
+  color: var(--obo-on-accent);
 }
 
 .accent-rule {
   height: 3px;
-  background: var(--accent-gradient, linear-gradient(90deg, #b3261e, #7a1410));
+  background: var(--obo-gradient);
 }
 
 .shell-nav a {
@@ -58,7 +77,7 @@
 }
 
 .shell-nav a[aria-current="page"] {
-  background: var(--accent-gradient, linear-gradient(90deg, #b3261e, #7a1410));
+  background: var(--obo-gradient);
 }
 
 .shell-right {
@@ -75,8 +94,8 @@ main {
 }
 
 .card {
-  border: 1px solid var(--control-border, #888);
-  border-top: 3px solid var(--accent, #b3261e);
+  border: 1px solid var(--control-border);
+  border-top: 3px solid var(--accent);
   border-radius: 10px;
   padding: 14px 18px;
   margin: 16px 0;
@@ -92,13 +111,13 @@ main {
 }
 
 .flow-canvas {
-  border: 1px solid var(--control-border, #888);
+  border: 1px solid var(--control-border);
   border-radius: 8px;
 }
 
 .btn-primary {
-  background: var(--accent, #b3261e);
-  color: #fff;
+  background: var(--accent);
+  color: var(--obo-on-accent);
   border: none;
   padding: 6px 16px;
   border-radius: 8px;
@@ -106,7 +125,7 @@ main {
 }
 
 button {
-  border: 1px solid var(--control-border, #888);
+  border: 1px solid var(--control-border);
   background: transparent;
   color: inherit;
   border-radius: 8px;
@@ -121,7 +140,7 @@ button:disabled {
 
 select,
 input {
-  border: 1px solid var(--control-border, #888);
+  border: 1px solid var(--control-border);
   border-radius: 6px;
   padding: 4px 8px;
   background: var(--surface, transparent);
@@ -135,32 +154,32 @@ input {
 }
 
 .scenario-btn.pressed {
-  background: var(--accent, #b3261e);
-  color: #fff;
+  background: var(--accent);
+  color: var(--obo-on-accent);
 }
 
 .run-result {
   margin-top: 12px;
   padding: 10px 14px;
   border-radius: 8px;
-  border: 1px solid var(--control-border, #888);
+  border: 1px solid var(--control-border);
 }
 
 .run-result.ok {
-  border-left: 4px solid #1a7f37;
+  border-left: 4px solid var(--obo-ok-edge);
 }
 
 .run-result.refused {
-  border-left: 4px solid #d02020;
+  border-left: 4px solid var(--obo-bad-edge);
 }
 
 .hop-ok {
-  color: #1a7f37;
+  color: var(--obo-ok-edge);
   font-weight: 600;
 }
 
 .hop-bad {
-  color: #d02020;
+  color: var(--obo-bad-edge);
   font-weight: 700;
 }
 
@@ -184,7 +203,7 @@ input {
 }
 
 .issue-card {
-  border: 1px solid var(--control-border, #888);
+  border: 1px solid var(--control-border);
   border-radius: 8px;
   padding: 10px 14px;
 }
@@ -194,40 +213,40 @@ input {
   font-size: 0.72rem;
   padding: 2px 10px;
   border-radius: 999px;
-  border: 1px solid var(--control-border, #888);
+  border: 1px solid var(--control-border);
 }
 
 .chip-blocker {
-  border-color: #d02020;
-  color: #d02020;
+  border-color: var(--obo-bad-edge);
+  color: var(--obo-bad-edge);
 }
 
 .chip-warn {
-  border-color: #b58a00;
-  color: #b58a00;
+  border-color: var(--obo-warn-edge);
+  color: var(--obo-warn-edge);
 }
 
 .chip-limit,
 .chip-decision,
 .chip-honesty {
-  border-color: var(--control-border, #888);
+  border-color: var(--control-border);
 }
 
 .fix {
-  color: var(--text-muted, #888);
+  color: var(--text-muted);
   font-size: 0.9rem;
 }
 
 .lane {
   font-size: 0.72rem;
-  border: 1px solid var(--control-border, #888);
+  border: 1px solid var(--control-border);
   border-radius: 999px;
   padding: 1px 8px;
   margin-left: 6px;
 }
 
 .steps-list code {
-  background: var(--surface, rgba(127, 127, 127, 0.15));
+  background: var(--obo-band-2);
   padding: 1px 6px;
   border-radius: 4px;
 }
@@ -241,7 +260,7 @@ input {
 
 .app-footer {
   text-align: center;
-  color: var(--text-muted, #888);
+  color: var(--text-muted);
   font-size: 0.85rem;
   padding: 16px;
 }
@@ -262,8 +281,8 @@ input {
 }
 
 .presenter-say {
-  border: 1px solid var(--control-border, #888);
-  border-left: 4px solid var(--accent, #b3261e);
+  border: 1px solid var(--control-border);
+  border-left: 4px solid var(--accent);
   border-radius: 8px;
   padding: 10px 14px;
   margin: 12px 0;
@@ -272,7 +291,7 @@ input {
 }
 
 .opening-card {
-  border-top: 3px solid var(--lane-agent, #eb6834);
+  border-top: 3px solid var(--lane-agent);
 }
 
 .opening-sub {
@@ -280,7 +299,7 @@ input {
 }
 
 .mcp-call {
-  border: 1px solid var(--control-border, #888);
+  border: 1px solid var(--control-border);
   border-radius: 8px;
   padding: 12px 14px;
   background: var(--surface, transparent);
@@ -298,24 +317,24 @@ input {
 }
 
 .chip-agent {
-  border-color: var(--lane-agent, #eb6834);
-  color: var(--lane-agent, #eb6834);
+  border-color: var(--lane-agent);
+  color: var(--lane-agent);
 }
 
 .chip-gw {
-  border-color: var(--lane-privilege, #13805a);
-  color: var(--lane-privilege, #13805a);
+  border-color: var(--lane-privilege);
+  color: var(--lane-privilege);
 }
 
 .chip-mcp {
-  border-color: var(--lane-mcp, #1baf7a);
-  color: var(--lane-mcp, #1baf7a);
+  border-color: var(--lane-mcp);
+  color: var(--lane-mcp);
 }
 
 .mcp-request {
   font-family: ui-monospace, monospace;
   font-size: 0.85rem;
-  background: var(--surface, rgba(127, 127, 127, 0.12));
+  background: var(--obo-band);
   border-radius: 6px;
   padding: 10px 12px;
   white-space: pre-wrap;
