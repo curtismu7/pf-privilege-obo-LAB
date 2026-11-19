@@ -50,7 +50,7 @@ else
   echo "skip    canonical standalone-ui.css not available (set STANDALONE_UI_CANONICAL); drift against canonical not checked"
 fi
 if [ -f "$pin" ]; then
-  if [ "$(hash "$copy")" = "$(cat "$pin")" ]; then echo "OK      matches the pinned hash"
+  if [ "$(hash "$copy")" = "$(cut -d" " -f1 "$pin")" ]; then echo "OK      matches the pinned hash"
   else echo "DRIFT   $copy_rel differs from scripts/standalone-ui.sha256 (edited copy, or re-vendored without --pin)"; status=1; fi
 else
   echo "MISSING scripts/standalone-ui.sha256 (run scripts/check-ui-standard.sh --pin)"; status=1
