@@ -84,7 +84,7 @@ log line), `logged` (Real: a line read from the product's own log) or `not-logge
   to `ping-logs-pingfederate`; the Privilege gateway's `cyonproxy.log` (local) or the SIEM index `ping-siem-events-v2` and the console Activity Logs (hosted); the backend MCP server's stdout.
 - **Settings** (both empty by default, in `.env.example` and passed through `docker-compose.yml`): `RUN_OBS_ES_URL` (a loopback Elasticsearch origin; inside the container loopback is the
   container, so use a forwarder in the lab's network namespace) and `RUN_OBS_ES_READ_APIKEY` (a read-only key; never returned, logged or put in an error). The compose file does **not** mount the
-  Docker socket; the Docker reader (`RUN_OBS_DOCKER=1`) is for a throwaway ad-hoc override only. The reader's call goes through the netguard, which lets loopback through and nothing else.
+  Docker socket; the shipped compose file adds no forwarder, so in Docker the log layers read `unreachable` until you add one; the Docker reader (`RUN_OBS_DOCKER=1`) is for a throwaway ad-hoc override only. The reader's call goes through the netguard, which lets loopback through and nothing else.
 
 ## Safety
 

@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { buildServer } from "../server/src/index.js";
 import { assertRunObservability, classify, layerMatchers } from "../server/src/runObservability.js";
 import { checkPin } from "../scripts/run-observability-checkPin.mjs";
-import { lineValue, observeRealRun } from "../server/src/runLog.js";
+import { lineValue, observeRealRun, buildRunRecord, createRunLog } from "../server/src/runLog.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -170,4 +170,41 @@ test("observeRealRun: a skipped frame makes no row; a refused control is marked 
   assert.deepEqual(ev.map((e) => e.layer), ["person", "agent", "gateway", "gateway"]);
   assert.equal(ev[3].outcome, "refused");
   assert.ok(ev.every((e) => /reply the lab received/.test(e.message)));
+});
+
+test("Mock autonomous run: there is no person, so no sign-in row and no actor to correlate; the access token row says there is no actor", async () => {
+  await withMock(async (j, lines) => {
+    await j("/api/run", { scenario: "autonomous" });
+    const rec = (await j("/api/run-observability", null, "GET")).body;
+    assert.deepEqual(assertRunObservability(rec), []);
+    assert.equal(rec.coverage.person, "not-logged");
+    assert.match(rowsOf(rec, "agent")[0].message, /no actor/);
+    assert.ok(!lines.some((l) => /layer=person/.test(l)), "no person line either");
+  });
+});
+
+test("Mock Cedar pass is worded as 'no policy refused', not 'a policy passed it'", async () => {
+  await withMock(async (j) => {
+    await j("/api/run", { scenario: "happy-read" });
+    const rec = (await j("/api/run-observability", null, "GET")).body;
+    assert.ok(rowsOf(rec, "privilege").some((r) => /No AI policy \(Cedar\) refused the call/.test(r.message)));
+  });
+});
+
+test("Real: a raw token or bearer echoed in an upstream message never reaches the record or its correlation ids; a failed exchange leaves no actor id", async () => {
+  const jwt = `eyJhbGciOiJub25lIn0.${Buffer.from('{"sub":"leak-me-please"}').toString("base64url")}.sig-value-1`;
+  const at = "2026-11-22T10:00:00.000Z";
+  const run = { source: "real", runId: "run-x", startedAt: at, user: "typed-user-name", frames: [
+    { n: 1, id: "signin", title: "Sign in", state: "ok", at, summary: "Signed in", token: { claims: { sub: "person-sub-123456" } }, response: { status: 200 } },
+    { n: 2, id: "exchange", title: "Exchange", state: "error", at, summary: `PingFederate refused the exchange (HTTP 400): saw Bearer ${jwt} and ${jwt}`, response: { status: 400 } },
+  ] };
+  const lines = [];
+  const stored = createRunLog({ write: (l) => lines.push(l) }).recordRun({ source: "real", runId: run.runId, startedAt: at, events: observeRealRun({ run }) });
+  const rec = await buildRunRecord({ run: stored, readers: [], clock: () => Date.parse(at) + 1000 });
+  assert.deepEqual(assertRunObservability(rec), []);
+  const text = JSON.stringify(rec) + lines.join("\n");
+  assert.ok(!text.includes(jwt) && !text.includes("leak-me-please") && !/Bearer eyJ/.test(text), "no token in the record or a stdout line");
+  assert.ok(!text.includes("typed-user-name"), "the configured user name is not written to a line");
+  assert.ok(stored.events.every((e) => e.actClient === undefined), "no actor id without an act claim");
+  assert.equal(rec.rows.find((r) => r.layer === "agent").outcome, "info");
 });

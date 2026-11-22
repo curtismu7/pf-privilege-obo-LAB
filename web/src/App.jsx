@@ -64,7 +64,7 @@ export default function App() {
   const [talkOpen, setTalkOpen] = useState(false);
   const [obs, setObs] = useState(null); // the run record for the current mode (null = no run yet)
   const [obsTick, setObsTick] = useState(0); // bumped after each run, and by the Re-read button
-  const [runTick, setRunTick] = useState(0); // bumped after each run only
+  const [ranIn, setRanIn] = useState(null); // { n, source } of the latest run: the delayed re-read belongs to a Real run only
   const [obsBusy, setObsBusy] = useState(false);
   const [obsReadAt, setObsReadAt] = useState(null);
 
@@ -100,12 +100,12 @@ export default function App() {
 
   // Real only: a collector ships lines with a delay, so the run just made reads "not logged" at first. Read once more about 5 s after it.
   useEffect(() => {
-    if (source !== "real" || runTick === 0) return undefined;
+    if (source !== "real" || ranIn?.source !== "real") return undefined;
     const t = setTimeout(() => setObsTick((n) => n + 1), REREAD_MS);
     return () => clearTimeout(t);
-  }, [runTick, source]);
+  }, [ranIn, source]);
 
-  const ran = () => { setRunTick((n) => n + 1); setObsTick((n) => n + 1); };
+  const ran = () => { setRanIn((r) => ({ n: (r?.n ?? 0) + 1, source })); setObsTick((n) => n + 1); };
 
   const switchMode = async (target) => {
     const r = await postJson("/api/mode", { source: target });
@@ -181,7 +181,8 @@ export default function App() {
               </span>
             </div>
           )}
-          <RunObservability record={obs} source={source === "real" ? "real" : "mock"} streams={RUN_STREAMS} />
+          {/* After a Mock/Real switch the old mode's record stays in `obs` until the new read returns: it is not shown under the new label. */}
+          <RunObservability record={obs?.rows && obs.source !== (source === "real" ? "real" : "mock") ? null : obs} source={source === "real" ? "real" : "mock"} streams={RUN_STREAMS} />
         </div>
         <ChainSteps steps={(data && data.steps) || []} />
         <IssuesPanel issues={(data && data.issues) || []} does={(data && data.does) || []} cant={(data && data.cant) || []} />

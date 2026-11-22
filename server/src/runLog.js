@@ -55,23 +55,26 @@ export function observeMockRun({ run, who = {}, minted = true }) {
   const out = [];
   const actor = who.actor || who.sub || 'unknown';
   const base = { actor, sub: who.sub };
-  if (minted && run.subjectToken) {
+  // A person signed in only when the token has an actor: the autonomous shape (sub = the agent, no act) has no person, so it gets no sign-in row.
+  if (minted && run.subjectToken && who.actor) {
     out.push({ ...base, actor: who.sub || 'unknown', layer: 'person', check: 'sign-in', outcome: 'allowed', product: 'lab mock issuer',
       message: `Mock sign-in of ${text(who.sub, 60)}: the mock issuer minted a person token`, detail: {} });
   }
   if (minted) {
     out.push(who.actor
-      ? { ...base, layer: 'agent', check: 'exchange', outcome: 'allowed', product: 'lab mock issuer',
+      ? { ...base, actClient: who.actor, layer: 'agent', check: 'exchange', outcome: 'allowed', product: 'lab mock issuer',
         message: `Mock exchange: the mock issuer issued an access token for ${text(who.sub, 60)} acting as ${text(who.actor, 60)}`, detail: {} }
       : { ...base, layer: 'agent', check: 'exchange', outcome: 'info', product: 'lab mock issuer',
-        message: 'Mock issuer issued an access token with no actor (act) claim', detail: {} });
+        message: 'Mock issuer issued an access token with no actor (act) claim; its subject is the agent itself, with no person behind it', detail: {} });
   }
   const ROW = { nhi: ['gateway', 'workload identity'], grant: ['privilege', 'grant'], cedar: ['privilege', 'AI policy (Cedar)'], backend: ['resource', 'backend verification'] };
+  // What a pass means: cedarCheck returns ok when no policy applied, so the row says no policy refused the call, not that a policy passed it.
+  const PASSED = { nhi: 'The workload identity check passed', grant: 'The grant check passed', cedar: 'No AI policy (Cedar) refused the call', backend: 'The backend verified the forwarded token' };
   for (const hop of run.hops) {
     const where = ROW[hop.stage];
     if (!where) continue;
     out.push({ ...base, layer: where[0], check: hop.stage, outcome: hop.ok ? 'allowed' : 'refused', product: `lab mock ${where[0] === 'resource' ? 'backend' : 'Privilege door'}`,
-      message: hop.ok ? `The ${where[1]} check passed` : `The ${where[1]} check stopped the call: ${text(hop.reason, 160)}`,
+      message: hop.ok ? PASSED[hop.stage] : `The ${where[1]} check stopped the call: ${text(hop.reason, 160)}`,
       detail: { http: run.http } });
   }
   return out;
@@ -89,9 +92,12 @@ const OUTCOME = { ok: 'allowed', refused: 'refused', error: 'info' };
 
 export function observeRealRun({ run }) {
   const out = [];
+  // Ids come from the claims the lab received: the person's sub from the sign-in's ID token (else the exchange's), the actor only from an act claim.
+  const signin = run.frames.find((f) => f.id === 'signin' && f.token?.claims);
   const exchange = run.frames.find((f) => f.id === 'exchange' && f.token?.claims);
-  const sub = exchange?.token.claims.sub;
-  const actor = exchange?.token.claims.act?.sub || exchange?.token.claims.client_id || sub;
+  const sub = signin?.token.claims.sub || exchange?.token.claims.sub;
+  const actClient = exchange?.token.claims.act?.sub;
+  const actor = actClient || sub;
   for (const f of run.frames) {
     const spec = FRAME[f.id];
     const outcome = OUTCOME[f.state];
@@ -102,7 +108,7 @@ export function observeRealRun({ run }) {
     // A whoami call the gateway refused is the gateway's decision; only an answered call is the backend's report.
     if (f.id === 'whoami' && f.state !== 'ok') layer = 'gateway';
     if (f.id === 'refused') message = `Control: the same call with a made-up token. ${said}. This is a reply the lab received, not a log line`;
-    out.push({ at: f.at, layer, check: spec.check, outcome, level: f.state === 'error' ? 'WARN' : undefined, product: spec.product, actor: f.id === 'signin' ? sub || run.user : actor, sub, message,
+    out.push({ at: f.at, layer, check: spec.check, outcome, level: f.state === 'error' ? 'WARN' : undefined, product: spec.product, actor: f.id === 'signin' ? sub : actor, actClient, sub, message,
       detail: { frame: f.n, status: f.response?.status, ...(f.id === 'refused' ? { control: true } : {}) } });
   }
   return out;
@@ -124,7 +130,7 @@ export async function buildRunRecord({ run, readers = readersFromEnv(), clock = 
   const { source, events } = run;
   const obs = createRunObservability({ readers, clock });
   const sub = events.find((e) => e.sub)?.sub;
-  const actor = events.find((e) => e.layer === 'agent')?.actor;
+  const actor = events.find((e) => e.actClient)?.actClient;
   let layers;
   if (source === 'mock') {
     layers = [

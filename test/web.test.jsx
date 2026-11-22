@@ -196,11 +196,13 @@ describe("App: what each layer logged for this run", () => {
     expect(calls.filter((c) => c.path === "/api/run-observability").length).toBeGreaterThan(before);
   });
 
-  it("a record that is for the other mode is refused on screen, not shown under the wrong label", async () => {
-    mockFetch({ "GET /api/run-observability": () => res(realRecord) });
+  it("a record that is for the other mode is never shown under the wrong label (the page drops it; the panel would refuse it too)", async () => {
+    const calls = mockFetch({ "GET /api/run-observability": () => res(realRecord) });
     render(<App />);
-    await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
+    await waitFor(() => expect(calls.some((c) => c.path === "/api/run-observability")).toBe(true));
+    await waitFor(() => expect(screen.getByTestId("ro-empty")).toBeTruthy());
     expect(screen.queryByTestId("ro-table")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("a failed read is an alert with the server's reason, never an empty table", async () => {
