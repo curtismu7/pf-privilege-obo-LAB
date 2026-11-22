@@ -20,8 +20,8 @@ const basicOf = (id, s) => `Basic ${Buffer.from(`${id}:${s}`).toString("base64")
 
 let stub; let base; const minted = new Set(); let lastExchange = null; let challenge = null;
 const hits = {}; let lastSignInAuth = null;
-const knob = { exchangeEcho: false, exchangeFail: false, doorMode: "ok", delayMs: 0, refusalEcho: false };
-const resetKnobs = () => { Object.assign(knob, { exchangeEcho: false, exchangeFail: false, doorMode: "ok", delayMs: 0, refusalEcho: false }); };
+const knob = { flowDelayMs: 0, exchangeEcho: false, exchangeFail: false, exchangeCode: null, exchangeStatus: 400, doorMode: "ok", delayMs: 0, refusalEcho: false };
+const resetKnobs = () => { Object.assign(knob, { flowDelayMs: 0, exchangeEcho: false, exchangeFail: false, exchangeCode: null, exchangeStatus: 400, doorMode: "ok", delayMs: 0, refusalEcho: false }); };
 
 function reply(res, status, body, headers = {}) {
   res.writeHead(status, { "content-type": "application/json", ...headers });
@@ -36,6 +36,7 @@ before(async () => {
     hits[url.pathname] = (hits[url.pathname] || 0) + 1;
     if (knob.delayMs && url.pathname === "/as/token.oauth2") await new Promise((r) => setTimeout(r, knob.delayMs));
     if (url.pathname === "/as/authorization.oauth2") { challenge = url.searchParams.get("code_challenge"); return reply(res, 200, { id: "flow-abc-123", status: "USERNAME_PASSWORD_REQUIRED" }, { "set-cookie": "ST=1; Path=/" }); }
+    if (knob.flowDelayMs && url.pathname.startsWith("/pf-ws/authn/flows/")) await new Promise((r) => setTimeout(r, knob.flowDelayMs));
     if (url.pathname === "/pf-ws/authn/flows/flow-abc-123") {
       if (req.headers["x-xsrf-header"] !== "PingFederate") return reply(res, 400, { code: "INVALID_REQUEST" });
       const b = JSON.parse(body);
@@ -53,6 +54,7 @@ before(async () => {
         return reply(res, 200, { id_token: jwt({ iss: base, sub: "stub-user", aud: "signin-client", iat: now, exp: now + 300 }) });
       }
       if (req.headers.authorization !== basicOf("agent-client", AGENT_SECRET)) return reply(res, 401, { error: "invalid_client" });
+      if (knob.exchangeCode) return reply(res, knob.exchangeStatus, { error: knob.exchangeCode });
       if (knob.exchangeEcho) return reply(res, 400, { error: "invalid_request", error_description: `the secret was ${AGENT_SECRET} and the password ${PASSWORD}` });
       if (knob.exchangeFail) return reply(res, 400, { error: "invalid_target", error_description: "audience value is invalid" });
       lastExchange = Object.fromEntries(p);
@@ -306,14 +308,15 @@ async function withApi(envText, fn, opts = {}) {
   process.env.PFO_ENV_FILE = file;
   process.env.STANDALONE_ENV = "/dev/null";
   process.env.LAB_ALLOWED_HOSTS = "localhost:7812,127.0.0.1:7812";
-  const srv = buildServer({ runLogWrite: () => {}, runObsReaders: [], ...opts }).listen(0, "127.0.0.1");
+  const app = buildServer({ runLogWrite: () => {}, runObsReaders: [], ...opts });
+  const srv = app.listen(0, "127.0.0.1");
   await new Promise((r) => srv.on("listening", r));
   const api = `http://127.0.0.1:${srv.address().port}`;
   const j = async (p, b, method = "POST") => {
     const res = await fetch(api + p, { method, headers: { "content-type": "application/json", ...(method !== "GET" ? { origin: api } : {}) }, body: method === "GET" ? undefined : JSON.stringify(b || {}) });
-    return { status: res.status, body: res.status === 204 ? null : await res.json() };
+    return { status: res.status, note: res.headers.get("x-run-observability-note"), body: res.status === 204 ? null : await res.json() };
   };
-  try { await fn(j); } finally { srv.close(); delete process.env.PFO_ENV_FILE; delete process.env.STANDALONE_ENV; }
+  try { await fn(j, app); } finally { srv.close(); delete process.env.PFO_ENV_FILE; delete process.env.STANDALONE_ENV; }
 }
 
 test("API: Real is refused 409 until configured; info says why", async () => {
@@ -405,9 +408,13 @@ test("run observability, Real: one response row per frame the lab received, neve
     assert.ok(rec.rows.every((r) => r.origin !== "simulated" && r.origin !== "logged"), "no reader is configured, so nothing is logged");
     const resp = rec.rows.filter((r) => r.origin === "response");
     assert.deepEqual(resp.map((r) => r.layer), ["person", "agent", "gateway", "gateway"]);
-    assert.deepEqual(resp.map((r) => r.outcome), ["allowed", "allowed", "allowed", "refused"]);
+    // The sign-in is an issuance, not a decision (info); PingFederate answering the exchange with a token, the door's accept and the control's refusal are.
+    assert.deepEqual(resp.map((r) => r.outcome), ["info", "allowed", "allowed", "refused"]);
     assert.ok(resp.every((r) => /reply the lab received/.test(r.message)), "a reply is said to be a reply");
-    assert.match(resp[3].message, /made-up token/);
+    // The control is the lab's own check: it is a genuine door refusal, and the row says plainly that the lab sent it on purpose.
+    assert.match(resp[3].message, /^Control: the lab sent a made-up credential on purpose; the door is expected to refuse it\./);
+    assert.equal(resp[3].detail.control, true);
+    assert.ok(resp.slice(0, 3).every((r) => r.detail.control === undefined), "only the control row carries the flag");
     for (const layer of ["person", "agent", "gateway"]) assert.equal(rec.coverage[layer], "response");
     assert.equal(rec.coverage.authorize, "not-logged");
     assert.ok(["unreachable", "not-logged"].includes(rec.coverage.privilege));
@@ -486,4 +493,165 @@ test("run observability: a Real record is never served under Mock, and Mock has 
     await j("/api/mode", { source: "real" });
     assert.equal((await j("/api/run-observability", null, "GET")).body.source, "real");
   });
+});
+
+// ---- review fixes: only a policy point's decision is allowed or refused; a record is for the run asked for; Reset wins over a run in flight -------------
+
+const exchangeRow = (rec) => rec.rows.find((r) => r.layer === "agent" && r.origin === "response");
+
+test("run observability, Real: PingFederate's exchange is refused only for its refusal codes; invalid_client and other 4xx are information, and the row text never says refused beside info", async () => {
+  await withApi(settings(), async (j) => {
+    await j("/api/mode", { source: "real" });
+    for (const [code, status, outcome] of [["invalid_grant", 400, "refused"], ["invalid_target", 400, "refused"], ["invalid_scope", 400, "refused"], ["access_denied", 403, "refused"],
+      ["invalid_client", 401, "info"], ["invalid_request", 400, "info"], ["unauthorized_client", 400, "info"], ["server_error", 503, "info"]]) {
+      knob.exchangeCode = code; knob.exchangeStatus = status;
+      const run = (await j("/api/real/obo/run", { shape: "agent", refusal: false })).body;
+      assert.equal(run.frames[1].response.error, code, "the frame carries the OAuth error code");
+      const rec = (await j(`/api/run-observability?runId=${run.id}`, null, "GET")).body;
+      assert.deepEqual(assertRunObservability(rec), []);
+      const row = exchangeRow(rec);
+      assert.equal(row.outcome, outcome, code);
+      assert.equal(rec.summary.refused, outcome === "refused" ? 1 : 0, code);
+      if (outcome === "refused") assert.match(row.message, new RegExp(`PingFederate refused the exchange: ${code}`));
+      else assert.ok(!/refused/i.test(row.message), `an info row must not say refused: ${row.message}`);
+      if (status >= 400 && status < 500 && outcome === "info") assert.match(row.message, /configuration or request problem, not an exchange decision/);
+    }
+  });
+});
+
+test("run observability, Real: a record is the run asked for: a failed attempt began no run, an unknown id is a 204 with its reason, a bad id is a 400", async () => {
+  await withApi(settings(), async (j) => {
+    await j("/api/mode", { source: "real" });
+    const good = (await j("/api/real/obo/run", { shape: "agent", refusal: false })).body;
+    assert.equal((await j("/api/real/obo/run", { shape: "nonsense" })).status, 400, "an attempt that began no run");
+    const none = await j("/api/run-observability?runId=run-0-0", null, "GET");
+    assert.equal(none.status, 204);
+    assert.equal(none.note, "No run with that id in this mode");
+    assert.equal((await j(`/api/run-observability?runId=${good.id}`, null, "GET")).body.runId, good.id);
+    assert.equal((await j("/api/run-observability", null, "GET")).body.runId, good.id, "no runId: the newest finished run of the mode");
+    assert.equal((await j("/api/run-observability?runId=a%20b", null, "GET")).status, 400);
+    assert.equal((await j(`/api/run-observability?runId=${"x".repeat(65)}`, null, "GET")).status, 400);
+    await j("/api/mode", { source: "mock" });
+    assert.equal((await j(`/api/run-observability?runId=${good.id}`, null, "GET")).status, 204, "a Real run is not served in Mock mode");
+  });
+});
+
+test("a Real run that started before Reset does not re-enter the stores when it finishes", async () => {
+  await withApi(settings(), async (j) => {
+    await j("/api/mode", { source: "real" });
+    knob.delayMs = 250;
+    const submitted = hits["/pf-ws/authn/flows/flow-abc-123"] || 0;
+    const inFlight = j("/api/real/obo/run", { shape: "agent", refusal: false });
+    // Reset only once the run is really in flight (its sign-in reached the stand-in, whose token endpoint then waits knob.delayMs).
+    for (let i = 0; i < 200 && (hits["/pf-ws/authn/flows/flow-abc-123"] || 0) === submitted; i += 1) await new Promise((r) => setTimeout(r, 10));
+    assert.equal((await j("/api/reset", {})).status, 200);
+    const run = (await inFlight).body;
+    assert.equal(run.ok, true, "the run itself still answered its caller");
+    assert.equal((await j("/api/run-observability", null, "GET")).status, 204, "the stale run is not in the record store");
+    assert.equal((await j(`/api/run-observability?runId=${run.id}`, null, "GET")).status, 204);
+    assert.deepEqual((await j("/api/runs", null, "GET")).body.realRuns, [], "nor in the run list");
+    knob.delayMs = 0;
+    const after = (await j("/api/real/obo/run", { shape: "agent", refusal: false })).body;
+    assert.equal((await j("/api/run-observability", null, "GET")).body.runId, after.id, "a run started after Reset is recorded");
+  });
+});
+
+// ---- review fixes, second round ------------------------------------------------------------------------------------------------------------
+
+import { observeRealRun } from "../server/src/runLog.js";
+
+test("a Real run in flight blocks a mode switch with a 409 {error, message}; an idle switch works both ways and 'Real not configured' is still its own 409", async () => {
+  await withApi(settings(), async (j) => {
+    assert.equal((await j("/api/mode", { source: "real" })).status, 200);
+    knob.delayMs = 300;
+    const inFlight = j("/api/real/obo/run", { shape: "agent", refusal: false });
+    const before = hits["/pf-ws/authn/flows/flow-abc-123"] || 0;
+    for (let i = 0; i < 200 && (hits["/pf-ws/authn/flows/flow-abc-123"] || 0) === before; i += 1) await new Promise((r) => setTimeout(r, 10));
+    const blocked = await j("/api/mode", { source: "mock" });
+    assert.equal(blocked.status, 409);
+    assert.deepEqual(blocked.body, { error: "run_in_progress", message: "A Real run is still in progress: wait for it to finish before switching mode." });
+    assert.equal((await j("/api/info", null, "GET")).body.source, "real", "the mode did not change");
+    const run = (await inFlight).body;
+    assert.equal(run.ok, true);
+    knob.delayMs = 0;
+    assert.equal((await j("/api/mode", { source: "mock" })).body.source, "mock", "idle: Real to Mock");
+    assert.equal((await j("/api/mode", { source: "real" })).body.source, "real", "idle: Mock to Real");
+    assert.equal((await j("/api/run-observability", null, "GET")).body.runId, run.id, "the run that was in flight finished under Real");
+  });
+  await withApi("", async (j) => {
+    const r = await j("/api/mode", { source: "real" });
+    assert.equal(r.status, 409);
+    assert.match(r.body.error, /Real is not configured/, "the existing 409 is unchanged");
+  });
+});
+
+test("the run deadline: a call that would start after it is not made (sign-in alone is three calls), and the row says so", async () => {
+  const token = () => hits["/as/token.oauth2"] || 0;
+  // Already past: nothing is called at all.
+  let before = Object.values(hits).reduce((a, b) => a + b, 0);
+  let run = await runReal(cfg(), { shape: "agent", refusal: true, deadlineMs: 0 });
+  assert.equal(Object.values(hits).reduce((a, b) => a + b, 0), before, "no call was made");
+  assert.equal(run.frames[0].state, "error");
+  assert.equal(run.frames[0].deadline, true);
+  assert.ok(run.frames.slice(1).every((f) => f.state === "skipped"));
+  // Passes while the sign-in's second call is waiting: the third sign-in call (the code exchange) is never made.
+  knob.flowDelayMs = 300;
+  const t0 = token();
+  run = await runReal(cfg(), { shape: "agent", refusal: false, deadlineMs: 150 });
+  knob.flowDelayMs = 0;
+  assert.equal(token() - t0, 0, "the sign-in's token call was not made after the deadline");
+  assert.equal(run.frames[0].state, "error");
+  assert.equal(run.frames[0].deadline, true);
+  assert.match(run.frames[0].summary, /deadline passed before this call could start/);
+  assert.deepEqual(run.frames.map((f) => f.state), ["error", "skipped", "skipped"]);
+  const ev = observeRealRun({ run });
+  assert.equal(ev.length, 1);
+  assert.equal(ev[0].outcome, "info");
+  assert.equal(ev[0].result, "no-reply");
+  assert.match(ev[0].message, /deadline passed before this call could start, so it was not made\. There is no reply to show/);
+  // The happy path is unchanged: the default deadline does not interfere.
+  run = await runReal(cfg(), { shape: "agent", refusal: true });
+  assert.equal(run.ok, true);
+});
+
+function countingReader() {
+  const r = { name: "count", calls: 0, canRead: () => true, async readLines() { r.calls += 1; return { lines: [] }; } };
+  return r;
+}
+
+test("a Real record is kept for 10 s per run: repeated reads (with or without runId) do not search again; a deliberate fresh read does; it expires; Reset drops it; Mock is never kept", async () => {
+  const reader = countingReader();
+  let t = 1_000_000;
+  await withApi(settings(), async (j, app) => {
+    await j("/api/mode", { source: "real" });
+    const run = (await j("/api/real/obo/run", { shape: "agent", refusal: false })).body;
+    assert.equal(reader.calls, 0);
+    const first = await j(`/api/run-observability?runId=${run.id}`, null, "GET");
+    const perRead = reader.calls;
+    assert.ok(perRead >= 4, `one read searches each product once (${perRead})`);
+    assert.equal(app.locals.recordCache.size, 1);
+    assert.deepEqual((await j(`/api/run-observability?runId=${run.id}`, null, "GET")).body, first.body);
+    assert.deepEqual((await j("/api/run-observability", null, "GET")).body, first.body, "the no-runId path honours it too");
+    assert.equal(reader.calls, perRead, "no search was fired again");
+    // The page's Re-read asks for a rebuild, which also refreshes what is kept.
+    await j(`/api/run-observability?runId=${run.id}&fresh=1`, null, "GET");
+    assert.equal(reader.calls, perRead * 2);
+    await j("/api/run-observability", null, "GET");
+    assert.equal(reader.calls, perRead * 2, "the rebuilt record is the one kept");
+    // Expiry.
+    t += 10_001;
+    await j("/api/run-observability", null, "GET");
+    assert.equal(reader.calls, perRead * 3, "after the TTL a read searches again");
+    // Reset drops it.
+    assert.equal(app.locals.recordCache.size, 1);
+    await j("/api/reset", {});
+    assert.equal(app.locals.recordCache.size, 0);
+    // Mock records are built from the lab's own rows: nothing is kept and no reader is asked.
+    await j("/api/mode", { source: "mock" });
+    await j("/api/run", { scenario: "happy-read" });
+    const calls = reader.calls;
+    await j("/api/run-observability", null, "GET");
+    assert.equal(reader.calls, calls, "no search for a Mock record");
+    assert.equal(app.locals.recordCache.size, 0);
+  }, { runObsReaders: [reader], recordTtlMs: 10_000, now: () => t });
 });

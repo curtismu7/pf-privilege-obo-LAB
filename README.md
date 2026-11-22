@@ -78,6 +78,12 @@ log line), `logged` (Real: a line read from the product's own log) or `not-logge
   each only if `runChain` reached it. An earlier refusal leaves the later layers `not-logged`.
 - **Real** rows: one `response` row per frame the run received (PingFederate's sign-in and exchange replies, the door's status, the backend's report), plus any `logged` row the
   Elasticsearch reader finds. Without `RUN_OBS_ES_URL` and `RUN_OBS_ES_READ_APIKEY` the log layers say `unreachable` and what to set; the lab keeps working.
+- **Outcomes**: only a policy point's decision is `allowed` or `refused` (the exchange, the workload-identity check, the grant, Cedar, the door, the backend). A sign-in or a client-credentials issuance is `info`
+  (an issuance, not a decision), and `info` is never counted as a pass. PingFederate's exchange is `refused` only for `invalid_grant`, `invalid_target`, `invalid_scope` and `access_denied`; `invalid_client`,
+  `invalid_request` and any other 4xx are a configuration or request problem (`info`). `GET /api/run-observability?runId=<id>` answers that run's record if it is one of the last three runs of the current mode
+  (otherwise 204, reason in the `X-Run-Observability-Note` header); without `runId` it answers the newest finished run. In Real the made-up-credential **control** row (the lab sends it on purpose and
+  the door is expected to refuse it) is a genuine door `refused` and **is counted in the summary**; its row says it is the lab's control. A Real record is kept for 10 seconds per run (it costs up to seven
+  Elasticsearch searches), Reset drops it, and the page's Re-read (`?fresh=1`) rebuilds it. A Real run still in progress blocks a mode switch (409 `run_in_progress`).
 - **What is `not-logged` today**: the person's sign-in (PingFederate's `audit.log` is not shipped to stdout), Authorize (this lab does not call it), and a gateway refusal
   (no refusal line is confirmed in any gateway log yet). A missing line is never turned into a row.
 - **Where the logs live and stream** (the panel's collapsible block says the same): this lab's stdout, then the collector to `demo-logs-<service>`; PingFederate container stdout

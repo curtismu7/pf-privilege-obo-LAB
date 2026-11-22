@@ -27,7 +27,7 @@ function mockFetch(overrides = {}) {
   const calls = [];
   global.fetch = (path, opts) => {
     calls.push({ path, opts });
-    const key = `${(opts && opts.method) || "GET"} ${path}`;
+    const key = `${(opts && opts.method) || "GET"} ${path.split("?")[0]}`;
     const j = (body, status = 200) => Promise.resolve({ ok: status < 400, status, json: () => Promise.resolve(body) });
     if (overrides[key]) return overrides[key]();
     if (path === "/api/catalog")
@@ -190,16 +190,16 @@ describe("App: what each layer logged for this run", () => {
     expect(screen.queryByTestId("ro-reread")).toBeNull(); // the Re-read control is a Real-mode control
     record = mockRecord;
     await waitFor(() => expect(screen.getByRole("button", { name: "Cedar" })).toBeTruthy());
-    const before = calls.filter((c) => c.path === "/api/run-observability").length;
+    const before = calls.filter((c) => c.path.startsWith("/api/run-observability")).length;
     fireEvent.click(screen.getByRole("button", { name: "Cedar" }));
     await waitFor(() => expect(screen.getByTestId("ro-table")).toBeTruthy(), { timeout: 8000 });
-    expect(calls.filter((c) => c.path === "/api/run-observability").length).toBeGreaterThan(before);
+    expect(calls.filter((c) => c.path.startsWith("/api/run-observability")).length).toBeGreaterThan(before);
   });
 
   it("a record that is for the other mode is never shown under the wrong label (the page drops it; the panel would refuse it too)", async () => {
     const calls = mockFetch({ "GET /api/run-observability": () => res(realRecord) });
     render(<App />);
-    await waitFor(() => expect(calls.some((c) => c.path === "/api/run-observability")).toBe(true));
+    await waitFor(() => expect(calls.some((c) => c.path.startsWith("/api/run-observability"))).toBe(true));
     await waitFor(() => expect(screen.getByTestId("ro-empty")).toBeTruthy());
     expect(screen.queryByTestId("ro-table")).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
@@ -221,5 +221,93 @@ describe("App: what each layer logged for this run", () => {
     await waitFor(() => expect(screen.getByTestId("ro-reread")).toBeTruthy());
     expect(screen.getByTestId("ro-read-note").textContent).toMatch(/ships lines with a delay/);
     await waitFor(() => expect(screen.getByTestId("ro-table")).toBeTruthy());
+  });
+});
+
+describe("App: the record is for the run just made (review fixes)", () => {
+  const noRecord = () => Promise.resolve({ ok: true, status: 204, json: () => Promise.reject(new Error("no body")) });
+
+  it("asks for the run's own id, shows 'Collecting' (never the previous run's record) while it is read, then the record", async () => {
+    let release;
+    const runs = ["r1", "r2"];
+    const calls = mockFetch({
+      "POST /api/run": () => res({ id: runs.shift(), http: 400, ok: false, hops: [{ stage: "nhi", ok: false, reason: "no" }], token: { hash: "abcd1234", claims: { sub: "u" } } }),
+      "GET /api/run-observability": () => {
+        const last = calls.at(-1).path;
+        if (last.endsWith("runId=r2")) return new Promise((r) => { release = () => r({ ok: true, status: 200, json: () => Promise.resolve({ ...mockRecord, runId: "r2" }) }); });
+        return last.endsWith("runId=r1") ? res({ ...mockRecord, runId: "r1" }) : noRecord();
+      },
+    });
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Happy" })).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Happy" }));
+    await waitFor(() => expect(screen.getByTestId("ro-table")).toBeTruthy(), { timeout: 8000 });
+    expect(calls.some((c) => c.path === "/api/run-observability?runId=r1")).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Cedar" }));
+    await waitFor(() => expect(screen.getByTestId("ro-loading")).toBeTruthy(), { timeout: 8000 });
+    expect(screen.getByTestId("ro-loading").textContent).toMatch(/Collecting this run's logs/);
+    expect(screen.queryByTestId("ro-table")).toBeNull();
+    release();
+    await waitFor(() => expect(screen.getByTestId("ro-table")).toBeTruthy());
+    expect(screen.queryByTestId("ro-loading")).toBeNull();
+  }, 30000);
+
+  it("an answer that is not a run record (valid JSON that is not an object, an object with no rows, an error with no reason) is an alert, never the 'no run yet' empty state", async () => {
+    for (const [status, body, expected] of [[200, [1, 2], /not a run record/], [200, "text", /not a run record/], [200, null, /not a run record/], [200, { runId: "x" }, /not a run record/], [500, { error: "boom" }, /HTTP 500|boom/], [502, ["x"], /HTTP 502/]]) {
+      mockFetch({ "GET /api/run-observability": () => res(body, status) });
+      render(<App />);
+      await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(expected), { timeout: 4000 });
+      expect(screen.queryByTestId("ro-empty")).toBeNull();
+      cleanup();
+    }
+  });
+
+  it("Real: a failed attempt (no run began) shows the empty state, not the older run's record, and reads nothing", async () => {
+    const posts = [() => res({ id: "run-real-1", shape: "agent", ok: true, ms: 5, frames: [] }), () => res({ error: "a run is already in progress" }, 409)];
+    const calls = mockFetch({
+      "GET /api/info": () => res({ source: "real", realAvailable: true }),
+      "GET /api/real/obo": () => res({ configured: true, user: "someone", shapes: { agent: true, gateway: true } }),
+      "POST /api/real/obo/run": () => posts.shift()(),
+      "GET /api/run-observability": () => (calls.at(-1).path.endsWith("runId=run-real-1") ? res(realRecord) : noRecord()),
+    });
+    render(<App />);
+    await waitFor(() => expect(screen.getByTestId("real-obo-run")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("real-obo-run"));
+    await waitFor(() => expect(screen.getByTestId("ro-table")).toBeTruthy());
+    const reads = calls.filter((c) => c.path.startsWith("/api/run-observability")).length;
+    fireEvent.click(screen.getByTestId("real-obo-run"));
+    await waitFor(() => expect(screen.getByTestId("real-obo-error")).toBeTruthy());
+    expect(screen.queryByTestId("ro-table")).toBeNull();
+    expect(screen.getByTestId("ro-empty")).toBeTruthy();
+    expect(calls.filter((c) => c.path.startsWith("/api/run-observability")).length).toBe(reads);
+  });
+});
+
+describe("App: a mode switch refused while a Real run is in progress, and the deliberate Re-read (review fixes)", () => {
+  it("shows the server's reason, keeps the mode, and clears it after a switch that works", async () => {
+    let answer = () => res({ error: "run_in_progress", message: "A Real run is still in progress: wait for it to finish before switching mode." }, 409);
+    mockFetch({ "GET /api/info": () => res({ source: "mock", realAvailable: true }), "POST /api/mode": () => answer() });
+    render(<App />);
+    await waitFor(() => expect(screen.getByLabelText("Mock or Real")).toBeTruthy());
+    fireEvent.change(screen.getByLabelText("Mock or Real"), { target: { value: "real" } });
+    await waitFor(() => expect(screen.getByTestId("mode-error").textContent).toMatch(/Real run is still in progress/));
+    expect(screen.getByLabelText("Mock or Real").value).toBe("mock");
+    answer = () => res({ source: "real" });
+    fireEvent.change(screen.getByLabelText("Mock or Real"), { target: { value: "real" } });
+    await waitFor(() => expect(screen.queryByTestId("mode-error")).toBeNull());
+  });
+
+  it("Re-read logs asks the server to rebuild the record (?fresh=1); the first read does not", async () => {
+    const calls = mockFetch({
+      "GET /api/info": () => res({ source: "real", realAvailable: true }),
+      "GET /api/real/obo": () => res({ configured: true, user: "someone", shapes: { agent: true, gateway: true } }),
+      "GET /api/run-observability": () => res(realRecord),
+    });
+    render(<App />);
+    await waitFor(() => expect(screen.getByTestId("ro-table")).toBeTruthy());
+    expect(calls.some((c) => c.path === "/api/run-observability")).toBe(true);
+    expect(calls.some((c) => c.path.includes("fresh=1"))).toBe(false);
+    fireEvent.click(screen.getByTestId("ro-reread"));
+    await waitFor(() => expect(calls.some((c) => c.path === "/api/run-observability?fresh=1")).toBe(true));
   });
 });

@@ -21,12 +21,17 @@ test("the vendored run-observability files match the pin; this lab reads logs in
   assert.ok(!/^\s*import\s/m.test(core), "the core has no imports");
 });
 
-test("compose never mounts the Docker socket; the read key and URL are passed through empty by default", () => {
+test("compose never mounts the Docker socket; the read key and URL are passed through EMPTY by default (a default of http://x.example:9200 fails)", () => {
   for (const file of ["docker-compose.yml", ".env.example"]) {
     const text = readFileSync(join(root, file), "utf8");
-    assert.ok(!/docker\.sock/.test(text.replace(/#.*$/gm, "")), `${file} mounts no Docker socket`);
-    assert.match(text, /RUN_OBS_ES_URL/, `${file} names RUN_OBS_ES_URL`);
-    assert.match(text, /RUN_OBS_ES_READ_APIKEY/, `${file} names RUN_OBS_ES_READ_APIKEY`);
+    const code = text.replace(/#.*$/gm, "");
+    assert.ok(!/docker\.sock/.test(code), `${file} mounts no Docker socket`);
+    for (const name of ["RUN_OBS_ES_URL", "RUN_OBS_ES_READ_APIKEY"]) {
+      const lines = code.split("\n").filter((l) => new RegExp(`(^|[\\s-])${name}\\s*=`).test(l));
+      assert.ok(lines.length >= 1, `${file} names ${name}`);
+      // compose: `- NAME=${NAME:-}` (empty default); .env.example: `NAME=` (nothing after the sign). Any default value, in either, fails.
+      for (const l of lines) assert.match(l.trim(), file === "docker-compose.yml" ? new RegExp(`^- ${name}=\\$\\{${name}:-\\}$`) : new RegExp(`^${name}=$`), `${file}: ${name} must default to empty: ${l.trim()}`);
+    }
   }
   assert.ok(!/RUN_OBS_DOCKER\s*[:=]\s*["']?1/.test(readFileSync(join(root, "docker-compose.yml"), "utf8")), "the Docker reader stays off in the committed compose file");
 });
@@ -58,7 +63,7 @@ async function withMock(fn, opts = {}) {
   const api = `http://127.0.0.1:${srv.address().port}`;
   const j = async (p, b, method = "POST") => {
     const res = await fetch(api + p, { method, headers: { "content-type": "application/json", ...(method !== "GET" ? { origin: api } : {}) }, body: method === "GET" ? undefined : JSON.stringify(b || {}) });
-    return { status: res.status, body: res.status === 204 ? null : await res.json() };
+    return { status: res.status, note: res.headers.get("x-run-observability-note"), body: res.status === 204 ? null : await res.json() };
   };
   try { await fn(j, lines); } finally { srv.close(); delete process.env.PFO_ENV_FILE; delete process.env.STANDALONE_ENV; }
 }
@@ -130,7 +135,7 @@ test("one stdout line per decision, with the row's own timestamp, the actor and 
     const rec = (await j("/api/run-observability", null, "GET")).body;
     const simulated = rec.rows.filter((r) => r.origin === "simulated");
     assert.equal(lines.length, simulated.length, "one line for each decision row");
-    const LINE = /^\[\d{4}-\d{2}-\d{2}T[\d:.]+Z\] (INFO|WARN): pf-privilege-obo-lab decision layer=[a-z]+ check=[A-Za-z0-9._:/@-]+ actor=[A-Za-z0-9._:/@-]+ result=(passed|stopped|unclear) mode=(mock|real)$/;
+    const LINE = /^\[\d{4}-\d{2}-\d{2}T[\d:.]+Z\] (INFO|WARN): pf-privilege-obo-lab decision layer=[a-z]+ check=[A-Za-z0-9._:/@-]+ actor=[A-Za-z0-9._:/@-]+ result=(passed|stopped|unclear|no-reply) mode=(mock|real)$/;
     for (const l of lines) {
       assert.match(l, LINE);
       assert.ok(!/eyJ|Bearer|secret|password/i.test(l), "no token or secret in a line");
@@ -178,8 +183,12 @@ test("Mock autonomous run: there is no person, so no sign-in row and no actor to
     const rec = (await j("/api/run-observability", null, "GET")).body;
     assert.deepEqual(assertRunObservability(rec), []);
     assert.equal(rec.coverage.person, "not-logged");
-    assert.match(rowsOf(rec, "agent")[0].message, /no actor/);
+    // A client-credentials issuance, not an exchange and not a decision.
+    assert.equal(rowsOf(rec, "agent")[0].outcome, "info");
+    assert.match(rowsOf(rec, "agent")[0].message, /client-credentials token was issued for .*; there is no act claim/);
     assert.ok(!lines.some((l) => /layer=person/.test(l)), "no person line either");
+    assert.ok(!lines.some((l) => /check=exchange/.test(l)), "the autonomous line does not read as an exchange");
+    assert.ok(lines.some((l) => /layer=agent check=client-credentials/.test(l)));
   });
 });
 
@@ -207,4 +216,71 @@ test("Real: a raw token or bearer echoed in an upstream message never reaches th
   assert.ok(!text.includes("typed-user-name"), "the configured user name is not written to a line");
   assert.ok(stored.events.every((e) => e.actClient === undefined), "no actor id without an act claim");
   assert.equal(rec.rows.find((r) => r.layer === "agent").outcome, "info");
+});
+
+// ---- review fixes --------------------------------------------------------------------------------------------------------------
+
+test("Mock act-text: act is the string \"{}\", never read as an object: the row says the act claim is malformed, no actor is named, and no function text reaches a row or a line", async () => {
+  await withMock(async (j, lines) => {
+    await j("/api/run", { scenario: "act-text" });
+    const rec = (await j("/api/run-observability", null, "GET")).body;
+    assert.deepEqual(assertRunObservability(rec), []);
+    const agent = rowsOf(rec, "agent")[0];
+    assert.equal(agent.outcome, "allowed", "the mock issuer issued the exchanged token");
+    assert.match(agent.message, /act claim is not an object with a string sub \(it is text\), so it names no actor/);
+    assert.ok(!/acting as/.test(agent.message));
+    const all = JSON.stringify(rec) + lines.join("\n");
+    assert.ok(!/function|native code/i.test(all), "no String.prototype.sub text");
+    assert.equal(rowsOf(rec, "person")[0].outcome, "info", "the sign-in happened (an issuance), the person is the subject");
+    assert.equal(rowsOf(rec, "gateway")[0].outcome, "refused", "the workload identity check refuses the malformed act");
+    assert.ok(lines.every((l) => /actor=[A-Za-z0-9._:/@-]+ /.test(l) && !/actor=function/.test(l)));
+  });
+});
+
+test("observeRealRun: a malformed act (text) names no actor and its sub is never read as a function", () => {
+  const at = "2026-11-22T10:00:00.000Z";
+  const run = { user: "u", frames: [
+    { n: 1, id: "signin", title: "Sign in", state: "ok", at, summary: "Signed in", token: { claims: { sub: "person-sub-123456" } }, response: { status: 200 } },
+    { n: 2, id: "exchange", title: "Exchange", state: "ok", at, summary: "Issued", token: { claims: { sub: "person-sub-123456", act: "{}" } }, response: { status: 200 } },
+  ] };
+  const ev = observeRealRun({ run });
+  assert.ok(ev.every((e) => e.actClient === undefined), "no actor id from a text act");
+  assert.ok(!JSON.stringify(ev).includes("native code"));
+  assert.ok(ev.every((e) => typeof e.actor === "string"));
+});
+
+test("only a policy point's decision is allowed or refused: the sign-in is information, the Cedar block counts one refusal", async () => {
+  await withMock(async (j) => {
+    await j("/api/run", { scenario: "cedar-block" });
+    const rec = (await j("/api/run-observability", null, "GET")).body;
+    assert.deepEqual(rec.summary, { allowed: 3, refused: 1, blocked: 0, info: 1, unverified: 0 });
+    assert.deepEqual(rec.rows.filter((r) => r.origin === "simulated").map((r) => `${r.layer}:${r.outcome}`), ["person:info", "agent:allowed", "gateway:allowed", "privilege:allowed", "privilege:refused"]);
+  });
+});
+
+test("a record is the run asked for: overlapping Mock runs never show each other's record, the last three are kept, an evicted run is a 204 with its reason", async () => {
+  await withMock(async (j) => {
+    const ids = [];
+    for (const scenario of ["happy-read", "cedar-block", "wrong-audience", "no-grant"]) ids.push((await j("/api/run", { scenario })).body.id);
+    const rec = (id) => j(`/api/run-observability?runId=${id}`, null, "GET");
+    assert.equal((await rec(ids[3])).body.runId, ids[3]);
+    const b = (await rec(ids[1])).body;
+    assert.equal(b.runId, ids[1], "an earlier run is its own record while it is one of the last three");
+    assert.equal(b.summary.refused, 1);
+    const evicted = await rec(ids[0]);
+    assert.equal(evicted.status, 204, "never a newer run's record");
+    assert.equal(evicted.note, "No run with that id in this mode");
+    assert.equal((await j("/api/run-observability", null, "GET")).body.runId, ids[3], "no runId: the newest finished run");
+    assert.equal((await j("/api/run-observability?runId=bad%20id", null, "GET")).status, 400);
+    assert.equal((await j(`/api/run-observability?runId=${"x".repeat(65)}`, null, "GET")).status, 400);
+  });
+});
+
+test("Mock events are stamped once with the real clock, with no invented spacing: a run computed in one instant shares one time, in write order", async () => {
+  const lines = [];
+  const log = createRunLog({ write: (l) => lines.push(l), clock: () => Date.parse("2026-11-22T10:00:00.000Z") });
+  const run = log.recordRun({ source: "mock", runId: "run-1-1", events: ["gateway", "privilege", "resource"].map((layer) => ({ layer, check: layer, actor: "a", outcome: "allowed", product: "p", message: "m", detail: {} })) });
+  assert.deepEqual([...new Set(run.events.map((e) => e.at))], ["2026-11-22T10:00:00.000Z"]);
+  const rec = await buildRunRecord({ run: { ...run, events: [{ ...run.events[2] }, { ...run.events[0] }, { ...run.events[1] }] }, readers: [], clock: () => Date.parse("2026-11-22T10:00:00.000Z") });
+  assert.deepEqual(rec.rows.filter((r) => r.at).map((r) => r.layer), ["gateway", "privilege", "resource"], "equal times list the Mock layers in the order the checks run");
 });
