@@ -11,11 +11,21 @@ import RealObo from "./RealObo.jsx";
 import IssuesPanel from "./IssuesPanel.jsx";
 import ChainSteps from "./ChainSteps.jsx";
 import OpeningCard from "./OpeningCard.jsx";
-import { useApi, postJson } from "./api.js";
+import { useApi, postJson, getRunObservability } from "./api.js";
+import RunObservability from "./run-observability/RunObservability.jsx";
 import { getDiagram } from "./diagram-data.js";
 import PrivilegeCheck from "./privilege-check/PrivilegeCheck.jsx";
 
 const STUDIO = getDiagram();
+
+// Where this lab's run leaves logs and where they stream (rule 27); the README says the same.
+const RUN_STREAMS = [
+  { product: "This lab (server)", lives: "its container stdout: one [time] INFO line per decision, with the actor and the result, never a token", streams: "the collector to demo-logs-<service> when one is set up, then a SIEM; Mock rows are never read from it" },
+  { product: "PingFederate (sign-in, token exchange)", lives: "container stdout; the audit log is not shipped today, so the person's sign-in is not logged", streams: "the collector to ping-logs-pingfederate once the audit log is shipped" },
+  { product: "Privilege agent gateway (the doors)", lives: "local: cyonproxy.log in its log volume; hosted: the SIEM index ping-siem-events-v2 and the console Activity Logs", streams: "the collector to ping-logs-privilege-gateway; the Privilege SIEM export" },
+  { product: "Backend MCP server", lives: "Mock: in-process stub with no log; Real: the MCP server container stdout", streams: "the collector to demo-logs-<service>" },
+];
+const REREAD_MS = 5000;
 
 // Presenter mode (rule 3): hides the intro copy and shows the talk-track line
 // for the current step while presenting.
@@ -52,6 +62,11 @@ export default function App() {
   }, [theme]);
   const [presenter, setPresenter] = useState(false);
   const [talkOpen, setTalkOpen] = useState(false);
+  const [obs, setObs] = useState(null); // the run record for the current mode (null = no run yet)
+  const [obsTick, setObsTick] = useState(0); // bumped after each run, and by the Re-read button
+  const [ranIn, setRanIn] = useState(null); // { n, source } of the latest run: the delayed re-read belongs to a Real run only
+  const [obsBusy, setObsBusy] = useState(false);
+  const [obsReadAt, setObsReadAt] = useState(null);
 
   useEffect(() => {
     const onKey = (e) => {
@@ -65,6 +80,32 @@ export default function App() {
   useEffect(() => {
     if (info.data) setSource(info.data.source);
   }, [info.data]);
+
+  // Rule 27: read the run record after every run, every Mock/Real switch and on demand.
+  useEffect(() => {
+    let live = true;
+    setObsBusy(true);
+    getRunObservability()
+      .then(({ status, body }) => {
+        if (!live) return;
+        if (status === 200 && Array.isArray(body?.rows)) setObs(body);
+        else if (status !== 204 && body?.error) setObs({ error: body.error, message: body.message });
+        else setObs(null);
+        setObsReadAt(new Date());
+      })
+      .catch(() => live && setObs({ error: "unreachable", message: "The run record could not be loaded." }))
+      .finally(() => live && setObsBusy(false));
+    return () => { live = false; };
+  }, [source, obsTick]);
+
+  // Real only: a collector ships lines with a delay, so the run just made reads "not logged" at first. Read once more about 5 s after it.
+  useEffect(() => {
+    if (source !== "real" || ranIn?.source !== "real") return undefined;
+    const t = setTimeout(() => setObsTick((n) => n + 1), REREAD_MS);
+    return () => clearTimeout(t);
+  }, [ranIn, source]);
+
+  const ran = () => { setRanIn((r) => ({ n: (r?.n ?? 0) + 1, source })); setObsTick((n) => n + 1); };
 
   const switchMode = async (target) => {
     const r = await postJson("/api/mode", { source: target });
@@ -124,13 +165,25 @@ export default function App() {
           </aside>
         )}
         {source === "real" ? (
-          <RealObo />
+          <RealObo onRan={ran} />
         ) : (
           <>
             <ScenarioPicker scenarios={(data && data.scenarios) || []} active={activeScenario} onSelect={setActiveScenario} />
-            <FlowSim catalog={data} activeScenario={activeScenario} speed={speed} />
+            <FlowSim catalog={data} activeScenario={activeScenario} speed={speed} onScenarioDone={ran} />
           </>
         )}
+        <div className="run-obs-slot">
+          {source === "real" && (
+            <div className="run-obs-tools">
+              <button type="button" className="run-obs-reread" data-testid="ro-reread" disabled={obsBusy} onClick={() => setObsTick((n) => n + 1)}>Re-read logs</button>
+              <span className="run-obs-note" data-testid="ro-read-note">
+                {obsReadAt ? `Read at ${obsReadAt.toLocaleTimeString()}. ` : ""}A collector ships lines with a delay: the run just made may read "not logged" until it has. The page reads again about 5 seconds after each run. "Not found (partial search)" means the search was cut, so absence is not proof.
+              </span>
+            </div>
+          )}
+          {/* After a Mock/Real switch the old mode's record stays in `obs` until the new read returns: it is not shown under the new label. */}
+          <RunObservability record={obs?.rows && obs.source !== (source === "real" ? "real" : "mock") ? null : obs} source={source === "real" ? "real" : "mock"} streams={RUN_STREAMS} />
+        </div>
         <ChainSteps steps={(data && data.steps) || []} />
         <IssuesPanel issues={(data && data.issues) || []} does={(data && data.does) || []} cant={(data && data.cant) || []} />
       </main>

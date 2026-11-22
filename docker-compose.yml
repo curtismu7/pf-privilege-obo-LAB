@@ -12,6 +12,10 @@ services:
       - path: .env
         required: false
     environment:
+      # Run observability (rule 27), Real mode only. A loopback Elasticsearch URL and a READ-ONLY key; empty = the Real record says
+      # "unreachable" and names what to set. Never mount the Docker socket here.
+      - RUN_OBS_ES_URL=${RUN_OBS_ES_URL:-}
+      - RUN_OBS_ES_READ_APIKEY=${RUN_OBS_ES_READ_APIKEY:-}
       - PORT=7812
       - BIND_ALL=1
       - LAB_ALLOWED_HOSTS=localhost:7812,127.0.0.1:7812,pf-privilege-obo-lab.local.ping-devops.com:7812,pf-privilege-obo-lab:7812,pf-privilege-obo-lab.local.ping-devops.com:8443,local.ping-devops.com:8443

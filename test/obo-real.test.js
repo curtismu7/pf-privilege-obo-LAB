@@ -8,6 +8,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { oboConfig, publicView, runReal, parseSettings, MADE_UP_TOKEN } from "../server/src/oboReal.js";
 import { buildServer } from "../server/src/index.js";
+import { assertRunObservability } from "../server/src/runObservability.js";
+import { ElasticsearchReader } from "../server/src/runObservabilityReaders.js";
 
 const PASSWORD = "stub-user-password-1";
 const AGENT_SECRET = "stub-agent-secret-2";
@@ -297,19 +299,19 @@ test("settings: a URL with credentials is refused; a quote ends a value only as 
 
 // ---- through the API ----------------------------------------------------------------------------------------
 
-async function withApi(envText, fn) {
+async function withApi(envText, fn, opts = {}) {
   const dir = mkdtempSync(join(tmpdir(), "pfo-"));
   const file = join(dir, ".env");
   writeFileSync(file, envText);
   process.env.PFO_ENV_FILE = file;
   process.env.STANDALONE_ENV = "/dev/null";
   process.env.LAB_ALLOWED_HOSTS = "localhost:7812,127.0.0.1:7812";
-  const srv = buildServer().listen(0, "127.0.0.1");
+  const srv = buildServer({ runLogWrite: () => {}, runObsReaders: [], ...opts }).listen(0, "127.0.0.1");
   await new Promise((r) => srv.on("listening", r));
   const api = `http://127.0.0.1:${srv.address().port}`;
   const j = async (p, b, method = "POST") => {
     const res = await fetch(api + p, { method, headers: { "content-type": "application/json", ...(method !== "GET" ? { origin: api } : {}) }, body: method === "GET" ? undefined : JSON.stringify(b || {}) });
-    return { status: res.status, body: await res.json() };
+    return { status: res.status, body: res.status === 204 ? null : await res.json() };
   };
   try { await fn(j); } finally { srv.close(); delete process.env.PFO_ENV_FILE; delete process.env.STANDALONE_ENV; }
 }
@@ -371,5 +373,117 @@ test("API: switching to Real lets exactly the configured hosts through the netgu
     assert.equal(await reach("elsewhere.invalid"), "blocked", "any other host is still refused");
     assert.equal((await j("/api/mode", { source: "mock" })).status, 200);
     assert.equal(await reach("pf.invalid"), "blocked");
+  });
+});
+
+// ---- run observability (rule 27) in Real: what each layer logged for the run ---------------------------------------------------
+
+async function withEs(hits, fn) {
+  const seen = [];
+  const es = http.createServer((req, res) => {
+    let t = ""; req.on("data", (c) => { t += c; });
+    req.on("end", () => {
+      seen.push({ url: req.url, auth: req.headers.authorization, body: t });
+      if (req.headers.authorization !== "ApiKey stub-read-key") return reply(res, 401, { error: "security_exception" });
+      reply(res, 200, { hits: { hits: hits().map((message) => ({ _source: { "@timestamp": new Date().toISOString(), message, host: "pod-1" } })) } });
+    });
+  });
+  await new Promise((r) => es.listen(0, "127.0.0.1", r));
+  try { await fn(`http://127.0.0.1:${es.address().port}`, seen); } finally { await new Promise((r) => { es.closeAllConnections(); es.close(r); }); }
+}
+
+test("run observability, Real: one response row per frame the lab received, never simulated and never logged; every layer named; no secret or raw token", async () => {
+  await withApi(settings(), async (j) => {
+    await j("/api/mode", { source: "real" });
+    assert.equal((await j("/api/run-observability", null, "GET")).status, 204, "no Real run yet");
+    const run = (await j("/api/real/obo/run", { shape: "agent", refusal: true })).body;
+    const { status, body: rec } = await j("/api/run-observability", null, "GET");
+    assert.equal(status, 200);
+    assert.deepEqual(assertRunObservability(rec), []);
+    assert.equal(rec.source, "real");
+    assert.equal(rec.runId, run.id);
+    assert.ok(rec.rows.every((r) => r.origin !== "simulated" && r.origin !== "logged"), "no reader is configured, so nothing is logged");
+    const resp = rec.rows.filter((r) => r.origin === "response");
+    assert.deepEqual(resp.map((r) => r.layer), ["person", "agent", "gateway", "gateway"]);
+    assert.deepEqual(resp.map((r) => r.outcome), ["allowed", "allowed", "allowed", "refused"]);
+    assert.ok(resp.every((r) => /reply the lab received/.test(r.message)), "a reply is said to be a reply");
+    assert.match(resp[3].message, /made-up token/);
+    for (const layer of ["person", "agent", "gateway"]) assert.equal(rec.coverage[layer], "response");
+    assert.equal(rec.coverage.authorize, "not-logged");
+    assert.ok(["unreachable", "not-logged"].includes(rec.coverage.privilege));
+    assert.match(rec.reasons.privilege, /RUN_OBS_ES_URL/);
+    const text = JSON.stringify(rec);
+    for (const x of [PASSWORD, AGENT_SECRET, SIGNIN_SECRET, ...minted]) assert.ok(!text.includes(x), "a secret or a raw token reached the record");
+    // The row's time is the frame's own time (when the lab had the reply), inside the run's window.
+    for (const r of resp) assert.ok(Date.parse(r.at) >= Date.parse(rec.window.from) && Date.parse(r.at) <= Date.parse(rec.window.to));
+  });
+});
+
+test("run observability, Real: a run that stopped early has rows only for the frames that made a call, and a failed call is information, not allowed", async () => {
+  await withApi(settings().replace(PASSWORD, "wrong"), async (j) => {
+    await j("/api/mode", { source: "real" });
+    await j("/api/real/obo/run", { shape: "gateway", refusal: true });
+    const rec = (await j("/api/run-observability", null, "GET")).body;
+    assert.deepEqual(assertRunObservability(rec), []);
+    const resp = rec.rows.filter((r) => r.origin === "response");
+    assert.deepEqual(resp.map((r) => [r.layer, r.outcome]), [["person", "info"]]);
+    assert.equal(rec.summary.allowed, 0);
+    assert.equal(rec.coverage.agent, "unreachable");
+    assert.ok(!JSON.stringify(rec).includes("wrong"), "the typed password is not echoed");
+  });
+});
+
+test("run observability, Real: the Elasticsearch reader's lines come back as logged rows with the product's own time, matched by the run's ids; the read key never leaves the server", async () => {
+  const lines = () => [
+    'level=info msg="Access token found for user: stub-user, client: agent-client"',
+    'level=info msg="Proxying to: http://backend.example/mcp"',
+    'level=info msg="something this lab has no matcher for"',
+  ];
+  await withEs(lines, async (esUrl, seen) => {
+    await withApi(settings(), async (j) => {
+      await j("/api/mode", { source: "real" });
+      await j("/api/real/obo/run", { shape: "agent", refusal: false });
+      const rec = (await j("/api/run-observability", null, "GET")).body;
+      assert.deepEqual(assertRunObservability(rec), []);
+      const logged = rec.rows.filter((r) => r.origin === "logged");
+      assert.ok(logged.length >= 2, `logged rows: ${logged.length}`);
+      assert.equal(rec.coverage.agent, "logged");
+      assert.equal(rec.coverage.gateway, "logged", "a logged row wins over the response row");
+      assert.ok(logged.every((r) => /^\d{4}-\d{2}-\d{2}T/.test(r.atExact)), "the source's own timestamp");
+      assert.ok(logged.some((r) => r.matchedBy === "id"), "the access-token line names this run's agent client");
+      assert.ok(rec.rows.filter((r) => r.origin === "response").length >= 3, "the lab's response rows are still there");
+      assert.ok(seen.length >= 1 && seen.every((x) => x.auth === "ApiKey stub-read-key" && x.url.endsWith("/_search")), "only read-only searches, with the read key");
+      assert.ok(!JSON.stringify(rec).includes("stub-read-key"), "the read key is not in the record");
+    }, { runObsReaders: [new ElasticsearchReader({ url: esUrl, apiKey: "stub-read-key" })] });
+  });
+});
+
+test("run observability, Real: a wrong read key makes the log layers unreachable with a reason; the run and the response rows still show", async () => {
+  await withEs(() => [], async (esUrl) => {
+    await withApi(settings(), async (j) => {
+      await j("/api/mode", { source: "real" });
+      await j("/api/real/obo/run", { shape: "agent", refusal: false });
+      const res = await j("/api/run-observability", null, "GET");
+      assert.equal(res.status, 200);
+      const rec = res.body;
+      assert.deepEqual(assertRunObservability(rec), []);
+      assert.match(rec.reasons.resource, /refused the read credential|unreachable|HTTP 401/i);
+      assert.ok(rec.rows.some((r) => r.origin === "response"));
+      assert.ok(!JSON.stringify(rec).includes("wrong-key"));
+    }, { runObsReaders: [new ElasticsearchReader({ url: esUrl, apiKey: "wrong-key" })] });
+  });
+});
+
+test("run observability: a Real record is never served under Mock, and Mock has its own", async () => {
+  await withApi(settings(), async (j) => {
+    await j("/api/mode", { source: "real" });
+    await j("/api/real/obo/run", { shape: "agent" });
+    assert.equal((await j("/api/run-observability", null, "GET")).body.source, "real");
+    await j("/api/mode", { source: "mock" });
+    assert.equal((await j("/api/run-observability", null, "GET")).status, 204, "no Mock run yet: the Real record is not shown");
+    await j("/api/run", { scenario: "happy-read" });
+    assert.equal((await j("/api/run-observability", null, "GET")).body.source, "mock");
+    await j("/api/mode", { source: "real" });
+    assert.equal((await j("/api/run-observability", null, "GET")).body.source, "real");
   });
 });

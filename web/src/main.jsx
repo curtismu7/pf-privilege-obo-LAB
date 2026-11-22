@@ -5,6 +5,7 @@ import "../standalone-ui.css";
 import "./components/JsonPane.css";
 import "./components/VerifyMark.css";
 import "./gateway-trace/gateway-trace.css";
+import "./run-observability/run-observability.css";
 import "../app.css";
 
 createRoot(document.getElementById("root")).render(<App />);
