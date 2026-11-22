@@ -1,9 +1,9 @@
 # Script: on behalf of a person, two ways (the agent exchanges, or the gateway does)
 
-Written first, before any recording (video standard: every video has a script built from the specs and docs actually read, not from memory). `captions.md` carries the on-screen wording and must say what this script says. If a source changes, change the script, then the captions, then retake. Draft 2, 2026-11-22: draft 1 was fact-checked by an independent reader and the corrections are applied (see "Review status"); a second pass is still due once the captions exist.
+Written first, before any recording (video standard: every video has a script built from the specs and docs actually read, not from memory). `captions.md` carries the on-screen wording and must say what this script says. If a source changes, change the script, then the captions, then retake. Draft 3, 2026-11-22: draft 1 was fact-checked by an independent reader and the corrections are applied (see "Review status"); draft 3 adds the observability slide and its capture plan (owner rule: every video ends with one). A second pass is still due once the captions exist.
 
 - **Placeholders:** this repo is public, so the PingFederate client ids and the demo user are written as `<agent-client>`, `<gateway-client>`, `<sign-in-client>` and `<demo-user>`. The real values live only in the lab's `.env` and in the local take.
-- **Format:** silent screen capture with numbered captions and full-screen slides, light theme, about 9 minutes. **No slide is held longer than 10 seconds** (owner rule, 2026-11-22). The A2A script wrote this as "at most about 75 words", but 75 words at the family's 4 words a second is about 19 seconds, not 10; this script holds the 10 seconds and caps each slide at **about 40 words**. (Note for the owner: VIDEO-BEST-PRACTICES.md says both numbers; the 40-word reading is the one that keeps the 10-second rule.) Opens and closes with a slide. Two cuts of the same take script: `PROFILE=monitor` and `PROFILE=laptop`, each full screen.
+- **Format:** silent screen capture with numbered captions and full-screen slides, light theme, about 9 minutes. **No slide is held longer than 10 seconds** (owner rule, 2026-11-22). The A2A script wrote this as "at most about 75 words", but 75 words at the family's 4 words a second is about 19 seconds, not 10; this script holds the 10 seconds and caps each slide at **about 40 words**. (Note for the owner: VIDEO-BEST-PRACTICES.md says both numbers; the 40-word reading is the one that keeps the 10-second rule.) Opens with a slide; the observability slide comes right before the closing slide. Two cuts of the same take script: `PROFILE=monitor` and `PROFILE=laptop`, each full screen.
 - **Audience:** a colleague who knows what an AI agent is and has met OAuth tokens, but has not read RFC 8693 or seen Privilege's OBO.
 - **One idea:** when an agent acts for a person, the token keeps the person as the subject and names the agent beside them. Privilege **records the person and pins the agent** (the identity accepts any subject, so the person is recorded, not pinned; the agent is pinned by the required `act.sub` and `client_id`, SETUP §5). Who does the exchange is a choice: the agent does it and Privilege checks the result (Part 1), or the gateway does it for the backend (Part 2).
 - **Part 1, agent-side (Pass Agent Token):** the app's **Agent-side OBO** run on the lab's Real mode. Sign in as the person, exchange, call the door, one refusal.
@@ -24,8 +24,9 @@ Written first, before any recording (video standard: every video has a script bu
 | **CONSOLE** | The Privilege local console API, read-only, 2026-11-22 (nothing changed by the read) | App `testobo`: MCP app, **Auth Mode `obo`**, backend `mcp-resource-server`, OBO block: token URL on the PingFederate host, client `<gateway-client>`, auth method `client_secret_basic`, a resource URI, scope `mcp opensearch:read whoami:read`. The client secret is write-only and never shown |
 | **LIVE** | The probes run 2026-11-22 (below) and the rehearsal before the take | Every number and claim shown in a scene |
 | **LAB** | This repo's README and code | The page, the numbered frames, the decoded-token pop-out |
+| **OBS** | The video standard's observability rule (`VIDEO-BEST-PRACTICES.md`, line 19; demo rule 27 in `STANDALONE-RULES.md`), the observability handoff (2026-11-22), and the shared panel's README and SPEC (AI-DEMO-Standalone `shared/run-observability`, read 2026-11-22) | What the slide must show, the honesty tags (logged, response, simulated, not logged), the capture order, and which log shapes are measured and which are not |
 
-**Gaps (looked for, not found; the video must not claim them):** no Ping documentation page for the Privilege OBO Auth Mode was read for this script, so every statement about it is the console's own fields plus what we measured, never "Ping says". The 2026-10-23 engineer statements about OBO in staging (in the parent repository's `PF-TOKEN-EXCHANGE-PASS-AGENT-TOKEN.md`) are out of date and are not used. No glossary sentence for "federated identity" or "custodian" from Ping; none is quoted.
+**Gaps (looked for, not found; the video must not claim them):** no confirmed gateway log line for a refused call (the shared README says refusal and block lines are not yet confirmed in any gateway log); no PingFederate `audit.log` on stdout, so the sign-in is not logged; no Ping documentation page for the Privilege OBO Auth Mode was read for this script, so every statement about it is the console's own fields plus what we measured, never "Ping says". The 2026-10-23 engineer statements about OBO in staging (in the parent repository's `PF-TOKEN-EXCHANGE-PASS-AGENT-TOKEN.md`) are out of date and are not used. No glossary sentence for "federated identity" or "custodian" from Ping; none is quoted.
 
 ## What was measured live on 2026-11-22 (the facts the scenes rely on)
 
@@ -60,6 +61,7 @@ The last row is the honest point of Part 2: RFC 8693 §4.1 says a token consumer
 3. Console state read the same day: `testobo` Auth Mode `obo`; `pftoken` grant not expired ("Ends in N days"); keys the `testobo` agent key and the `pftoken` key enabled.
 4. No client secret and no password on screen (they are write-only). Tokens **are** shown in full next to their decoded claims: this is a demo and the family shows tokens raw (owner, 2026-11-22). The tokens are short-lived (ID token 300 s, access token 3600 s) and the take is local.
 5. Scan the stills of each cut for the PingFederate and gateway hostnames (see "On screen").
+6. Observability capture is ready before the take starts (see "The observability slide"): the gateway pod's log reachable read-only (`kubectl` context `us`, namespace `ping-devops-cmuir`, `logs` only), the lab's container log readable, and `take.py` saves the lab's run record **right after each run**. The lab's record route holds only the latest run in the mode, so the Part 2 run replaces the Part 1 record unless Part 1's is saved first.
 
 ## Scenes
 
@@ -88,7 +90,36 @@ Slides are full screen and unnumbered; caption bubbles are numbered. Exact wordi
 | 14 | "Try a refused call" on `testobo` | A made-up token again. | L7 |
 | 15 | Refused frame | 401, same kind of challenge for this door. | L7; RFC9110 §15.5.2; RFC9728 §5.1 |
 | Slide | Contrast slide (about 40 words) | The two shapes side by side. | table above (trimmed) |
+| Slide | **Observability slide** (about 40 words; see below) | What the two runs left behind, layer by layer, each row tagged logged, reply or not logged, with its timestamp. An excerpt; ids masked. Where the logs live and stream. | OBS; the capture of this take |
 | Close | Slide (about 30 words) | The person stays the subject and the actor is named. Privilege records the person and pins the agent. Who exchanges is a choice. | all |
+
+## The observability slide (owner rule, 2026-11-22)
+
+**What it must show:** what the very run in this video left behind, read from the products' own logs (read-only, ids and tokens masked), with each row's timestamp. Every row carries one honest tag. **logged**: a line read from the product's own log, with the product's own time. **reply**: a decision the lab holds as an HTTP reply it received (the panel calls this `response`); real, but not read from a log. **not logged**: no line was found for this run, and the slide says so. A row is never reconstructed or inferred from a missing line. The slide says it is an excerpt and says in one line where the logs live and where they stream.
+
+**Build order (the standard's two segments):** record `SEGMENT=main` from the open slide to the Part 2 contrast slide (the last scene before this slide); capture the logs **straight after**; build the slide from the capture; record `SEGMENT=end` (observability slide, then the close); join with `scripts/join.sh`. Both cuts (`monitor`, `laptop`) are joined the same way, and the contact sheet is checked frame by frame.
+
+**Capture, for exactly this take** (nothing earlier, nothing later):
+
+1. Note the take's start and end times in UTC, and the ids that tie lines to the run: the person's `sub`, the agent client id and the gateway client id (they appear in the claims on screen and in the lab record), and the lab's run ids.
+2. The lab's own record, saved after **each** run (Part 1 and Part 2 are two runs): `GET /api/run-observability` in Real mode, plus the lab container's stdout lines (one timestamped line per decision, written by the lab). The lab's record gives the `reply` rows and any `logged` rows its Elasticsearch reader found. It does **not** read the Kubernetes gateway pod, so the gateway's lines come from step 3.
+3. The gateway pod's log for the take's window (`kubectl logs`, read-only, only the lab's namespace). The product's own timestamp is used where the line carries one; a line with no time of its own is shown with the runtime's timestamp and labelled as that. The Privilege console **Activity Logs** screenshots are taken too (read-only, kept local, not committed).
+4. Mask before anything is shown: ids shortened to the first 4 and last 2 characters, tokens never, no addresses, hostnames masked as on the rest of the slides. Check **every timestamp on the slide appears in the capture**, and every `not logged` row says so.
+
+**What the slide is expected to show, and what is not yet known.** The rows below are the plan, not the result: each is confirmed or struck by the capture, and any row the capture does not support becomes `not logged`.
+
+| Layer | Expected row (this take) | Tag expected | Basis |
+|---|---|---|---|
+| Person | The sign-in at PingFederate | reply (the lab's sign-in frame) and **not logged** (PingFederate's `audit.log` is not shipped, so no sign-in line is read) | OBS gaps; the lab's frames |
+| Agent (OBO) | The exchange at PingFederate; at the gateway the line naming the token's user and client | reply for the exchange; **logged** only if the capture finds the gateway line | the shared panel's `pgw-token-found` shape (measured elsewhere, not yet in this take) |
+| Authorize | Not used in this video | **not logged**, and the slide says "not used here" | the lab does not call PingOne Authorize |
+| Privilege | The grant and policy decision | **not logged** unless the capture finds a line or an Activity Logs entry for this run | OBS; to be found in the capture |
+| Agent gateway | Allowed: the call forwarded to the backend (the gateway's own "proxying" line, the only evidence of an allow). Refused: the call with the made-up token | allowed: **logged** if found; refused: **not logged** unless the capture finds a real line (none is confirmed in any gateway log; if one is found, report its masked shape to the observability work) | the shared README ("Refusal and block lines are not yet confirmed"); earlier probes saw `workload token accepted ... subject=...` and, on the failed call (L8), `obo exchange refused (status 401, error "invalid_client")`, **not** from this run |
+| Resource server | The backend's `whoami` report in Part 2 | reply (the lab frame); a backend log line only if the capture finds one | the `mcp-resource-server` stdout is not yet confirmed; L6 |
+
+**The slide itself** (one slide, about 40 words, held at most 10 seconds): a title naming it an excerpt with masked ids; at most four rows chosen from the table above, each `time, layer, tag, a few words`, the allowed row and the refused row always among them; one line saying where the logs live and where they stream (the gateway log and the SIEM); detail stays in the caption or the lab's own panel. Wording lands in `captions.md` after the capture, never before.
+
+**Why this is part of the story, not an add-on:** the video's idea is that the person is recorded and the agent is pinned. The slide is where the viewer can see which of those facts a product actually wrote down, and where it did not.
 
 ## On screen: what is masked and what is not
 
@@ -107,6 +138,7 @@ Slides are full screen and unnumbered; caption bubbles are numbered. Exact wordi
 ## Review status
 
 - [x] Independent fact check of draft 1 (a second reader, 2026-11-22): the RFC citations held (8693 §1.1, §2.1, §4.1; 6750 §2.1, §3, §3.1; 9110 §15.5.2; 9110 obsoletes 7235). Corrections applied in this draft: "Privilege checks both" became "records the person and pins the agent" (Subject is `*`); "the backend decides on the current actor" became "an RFC-following consumer"; the URI-versus-name framing for `resource`/`audience` was dropped; `resource_metadata` now cites RFC 9728 §5.1 (read); the scope-tier 403 no longer cites RFC 6750 §3.1; "nothing behind the door was reached" and "not all nine" were removed (no source); scene 4 says "configured to check"; scene 9 says "configured with", not "never"; "when `aud` is present" added to the RFC 7519 row; the contrast row says "at the backend"; the slide cap was restated as about 40 words. Residual gaps the reviewer listed and this draft keeps open: the Part 2 per-check gateway log (none exists), the scope-tier refusal and the passthrough (VERIFY).
-- [ ] Second pass on draft 2 plus the captions once `captions.md` exists: re-fetch each cited RFC section again and try to refute every caption.
+- [ ] Observability slide built from this take's capture (after the main segment): every timestamp on it appears in the capture, every non-logged row says so, masking checked, both cuts joined and viewed on a contact sheet.
+- [ ] Second pass on draft 3 plus the captions once `captions.md` exists: re-fetch each cited RFC section again and try to refute every caption.
 - [ ] Lenses before the SAMPLE: spec accuracy, truth against the live system (L1 to L7 re-run), audience and pacing (words per slide), code review of the lab changes, sensitive-data scan (hostnames, ids, tokens).
 - [ ] SAMPLE reviewed by the owner before the live take.
