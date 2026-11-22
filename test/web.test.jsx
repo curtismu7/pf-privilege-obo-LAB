@@ -108,7 +108,7 @@ describe("App", () => {
     expect(claims.textContent).toBe('{\n  "sub": "u"\n}');
     expect(screen.getByTestId("token-claims-box").querySelector(".jsonbox__toggle").textContent).toBe("FormJSON");
     fireEvent.click(screen.getByTestId("token-claims-formatted"));
-    expect(screen.getByTestId("token-claims").textContent).toBe("subu");
+    await waitFor(() => expect(screen.getByTestId("token-claims").textContent).toBe("subu"));
   });
 
   it("shows the mode toggle in the header (the shared TopMenu's mode select)", async () => {
