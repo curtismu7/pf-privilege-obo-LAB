@@ -111,3 +111,17 @@ test('UDP connect to loopback still works under the guard, and a connected send 
     assert.deepEqual(g.attempts, []);
   } finally { c.close(); server.close(); g.restore(); }
 });
+
+test('an allowed origin may be resolved; anything else is still refused', async () => {
+  const { setAllowedOrigins } = await import('../server/src/netguard.js');
+  const guard = installNetguard();
+  try {
+    setAllowedOrigins(['https://allowed.invalid']);
+    // Allowed: the guard lets the lookup through, so the failure is the real resolver's, not "network blocked".
+    await assert.rejects(dns.promises.lookup('allowed.invalid'), (e) => !/network blocked/.test(e.message));
+    await assert.rejects(dns.promises.lookup('other.invalid'), /network blocked/);
+    await new Promise((res) => dns.lookup('other.invalid', (e) => { assert.match(String(e?.message), /network blocked/); res(); }));
+    setAllowedOrigins([]);
+    await assert.rejects(dns.promises.lookup('allowed.invalid'), /network blocked/);
+  } finally { setAllowedOrigins([]); guard.restore(); }
+});

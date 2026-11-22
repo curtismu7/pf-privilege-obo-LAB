@@ -27,6 +27,9 @@ test("every vendored gateway-trace file matches its pinned sha256, and all four 
 
 async function withServer(fn) {
   process.env.LAB_ALLOWED_HOSTS = "localhost:7812,127.0.0.1:7812";
+  // Hermetic: a developer's real settings (the lab .env, the shared settings file) must not turn Real on in a test.
+  process.env.PFO_ENV_FILE = "/dev/null";
+  process.env.STANDALONE_ENV = "/dev/null";
   const srv = buildServer().listen(0, "127.0.0.1");
   await new Promise((r) => srv.on("listening", r));
   const base = `http://127.0.0.1:${srv.address().port}`;
@@ -96,7 +99,7 @@ test("no token reaches the trace: a minted token is shown only by its length, an
   assert.ok(!JSON.stringify(t2).includes(fakeKey));
 });
 
-test("this lab is mock only, so no real trace exists: Real stays refused", async () => {
+test("with Real not configured no real trace exists: Real stays refused (a real gateway reports no per-check detail)", async () => {
   await withServer(async (post) => {
     assert.equal((await post("/api/mode", { source: "real" })).status, 409);
   });

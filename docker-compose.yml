@@ -7,6 +7,10 @@ services:
     container_name: pf-privilege-obo-lab
     ports:
       - "127.0.0.1:${HOST_PORT:-7812}:7812"
+    # Real mode settings live in this lab's own .env beside this file (see .env.example). Optional: Mock needs none.
+    env_file:
+      - path: .env
+        required: false
     environment:
       - PORT=7812
       - BIND_ALL=1

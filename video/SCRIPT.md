@@ -58,7 +58,7 @@ The last row is the honest point of Part 2: RFC 8693 §4.1 says a token consumer
 1. Lab `.env` has `PFO_USER_NAME` and `PFO_USER_PASSWORD`; the header toggle is on **Real** and the page says LIVE; the take refuses to run otherwise.
 2. Re-probe L1 to L7 within the hour before the take (tokens are minted live; the gateway takes about 4 minutes to pick up any console change).
 3. Console state read the same day: `testobo` Auth Mode `obo`; `pftoken` grant not expired ("Ends in N days"); keys the `testobo` agent key and the `pftoken` key enabled.
-4. No token and no secret on screen: the page shows claims and a hash only; the signature is never shown.
+4. No client secret and no password on screen (they are write-only). Tokens **are** shown in full next to their decoded claims: this is a demo and the family shows tokens raw (owner, 2026-11-22). The tokens are short-lived (ID token 300 s, access token 3600 s) and the take is local.
 5. Scan the stills of each cut for the PingFederate and gateway hostnames (see "On screen").
 
 ## Scenes
@@ -72,7 +72,7 @@ Slides are full screen and unnumbered; caption bubbles are numbered. Exact wordi
 | **Part 1** | | | |
 | 1 | Lab, Real, Agent-side tab | The person signs in. The page shows who: the ID token's `sub` and its short life. | L1 |
 | 2 | Exchange frame, request pop-out | The agent trades the person's ID token for an access token. The parameters, as sent: grant type, subject token type, `audience`, `scope`. No actor token is sent. | L2; RFC8693 §2.1 |
-| 3 | Token pop-out (decoded) | `sub` is the person. `act.sub` is the agent. `aud` is the door. One hour. Signature never shown. Also said once: PingFederate writes `act` from its own mapping; the request sent no actor token (the RFC's `actor_token` is a different, optional route). | L2; RFC8693 §2.1, §4.1; PROV |
+| 3 | Token pop-out (decoded) | `sub` is the person. `act.sub` is the agent. `aud` is the door. One hour. The token is shown in full beside the decoded claims (a demo token; the signature is its last part, not explained in the video). Also said once: PingFederate writes `act` from its own mapping; the request sent no actor token (the RFC's `actor_token` is a different, optional route). | L2; RFC8693 §2.1, §4.1; PROV |
 | 4 | Door call frame, reply | The agent calls the MCP door with that token. 200, three tools. The identity is **configured** to check issuer, audience, the required `act.sub` and the lifetime; the lab shows this as inferred from the accepted call, not as a per-check log. | L3; SETUP §5 to §7 (a real gateway reports no per-check detail) |
 | 5 | Same call, tools list | Three read tools came back: this key's grant gives this token's scope tier those three. | L3; SETUP §7, §9.1 item 4 |
 | 6 | "Try a refused call" | The same call with a made-up token. | L4 |
@@ -92,7 +92,7 @@ Slides are full screen and unnumbered; caption bubbles are numbered. Exact wordi
 
 ## On screen: what is masked and what is not
 
-- The token is never displayed; the lab shows decoded claims and a sha256/8 hash. Client secrets and the user's password never appear.
+- Tokens are shown in full, with the decoded claims beside them (demo; owner, 2026-11-22). Client secrets and the user's password never appear: the exchange frame names the client and the authentication method, and the sign-in frame shows `password: <not shown>`.
 - **Not masked, owner's call before sharing outside the company:** the PingFederate host (the token's `iss` and the token URL) and the gateway host (the door URLs). The console read-out slide is built from the read-only API values and kept local; it is not committed (`video/assets/` and `video/out/` are gitignored).
 - The user shown is `<demo-user>` (the account in the vault, not `demouser`). **Decision for the owner:** keep it on screen as is, or supply the `demouser` password so the take shows a friendlier name.
 

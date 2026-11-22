@@ -8,6 +8,9 @@ const PORT = 0;
 
 async function withServer(fn) {
   process.env.LAB_ALLOWED_HOSTS = "localhost:7812,127.0.0.1:7812";
+  // Hermetic: a developer's real settings (the lab .env, the shared settings file) must not turn Real on in a test.
+  process.env.PFO_ENV_FILE = "/dev/null";
+  process.env.STANDALONE_ENV = "/dev/null";
   const app = buildServer();
   const srv = app.listen(PORT, "127.0.0.1");
   await new Promise((r) => srv.on("listening", r));

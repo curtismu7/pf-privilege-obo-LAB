@@ -19,7 +19,7 @@ const ok = (name, cond, detail = "") => {
 };
 
 const server = spawn(process.execPath, ["server/src/index.js"], {
-  env: { ...process.env, PORT: String(PORT), LAB_ALLOWED_HOSTS: `localhost:${PORT},127.0.0.1:${PORT}` },
+  env: { ...process.env, PFO_ENV_FILE: "/dev/null", STANDALONE_ENV: "/dev/null", PORT: String(PORT), LAB_ALLOWED_HOSTS: `localhost:${PORT},127.0.0.1:${PORT}` },
   stdio: "ignore"
 });
 

@@ -7,6 +7,7 @@ import SimulationBanner, { ModeToggle } from "./Banner.jsx";
 import ThemePicker from "./ThemePicker.jsx";
 import FlowSim from "./FlowSim.jsx";
 import ScenarioPicker from "./ScenarioPicker.jsx";
+import RealObo from "./RealObo.jsx";
 import IssuesPanel from "./IssuesPanel.jsx";
 import ChainSteps from "./ChainSteps.jsx";
 import OpeningCard from "./OpeningCard.jsx";
@@ -114,7 +115,7 @@ export default function App() {
       <div className="accent-rule" aria-hidden="true" />
       <main>
 
-        <PrivilegeCheck />
+        {source !== "real" && <PrivilegeCheck />}
         <SimulationBanner source={source} />
         <OpeningCard opening={data && data.opening} />
         {presenter && (
@@ -122,13 +123,21 @@ export default function App() {
             {presenterSay(activeScenario) || "Pick a scenario and press Simulate."}
           </aside>
         )}
-        <ScenarioPicker scenarios={(data && data.scenarios) || []} active={activeScenario} onSelect={setActiveScenario} />
-        <FlowSim catalog={data} activeScenario={activeScenario} speed={speed} />
+        {source === "real" ? (
+          <RealObo />
+        ) : (
+          <>
+            <ScenarioPicker scenarios={(data && data.scenarios) || []} active={activeScenario} onSelect={setActiveScenario} />
+            <FlowSim catalog={data} activeScenario={activeScenario} speed={speed} />
+          </>
+        )}
         <ChainSteps steps={(data && data.steps) || []} />
         <IssuesPanel issues={(data && data.issues) || []} does={(data && data.does) || []} cant={(data && data.cant) || []} />
       </main>
       <footer className="app-footer">
-        Demo tier · everything simulated · mock tokens labelled · raw token bodies stay server-side
+        {source === "real"
+          ? "Demo tier · Real mode: live calls to your own tenant · demo tokens shown in full, secrets never"
+          : "Demo tier · everything simulated · mock tokens labelled · raw token bodies stay server-side"}
       </footer>
 
       <TalkTrackDialog isOpen={talkOpen} onClose={() => setTalkOpen(false)} talk={talkSteps} />

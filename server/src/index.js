@@ -8,6 +8,7 @@ import * as pf from "./pf.js";
 import * as privilege from "./privilege.js";
 import { installNetguard, netguardSelfTest, setAllowedOrigins } from "./netguard.js";
 import { readFileSettings, doorConfig, createRealDoor } from "./gatewayReal.js";
+import { oboConfig, publicView, runReal, NOT_CONFIGURED } from "./oboReal.js";
 
 // Real mode = the shared gateway hop: an agent key from the shared settings file calling a live Privilege door.
 const PFO_REFUSAL = "Real is not configured: set PFO_GW_URL, PFO_GW_APPS and at least one PFO_GW_KEY_<NAME> in the shared settings file (~/Development/.env, or STANDALONE_ENV). Mock keeps working.";
@@ -19,11 +20,18 @@ function realDoorFrom(env = process.env) {
   const cfg = doorConfig(text, "PFO");
   return cfg.ok ? createRealDoor({ config: cfg, clientInfo: { name: "pf-privilege-obo", version: "0.1.0" } }) : null;
 }
+// Real OBO settings: this lab's own .env (beside the compose file), or the environment (compose env_file).
+function oboConfigNow(env = process.env) {
+  const file = env.PFO_ENV_FILE || join(dirname(fileURLToPath(import.meta.url)), "..", "..", ".env");
+  let text = "";
+  try { text = readFileSync(file, "utf8"); } catch { /* the environment may carry the settings */ }
+  return oboConfig(text, env);
+}
 import { fillTokens, tokensFor, undefinedTokens, VERTICALS } from "./cast.js";
 import { oboGatewayTrace } from "./oboTrace.js";
 import { SCENARIOS, CHAIN_STEPS, ISSUES, WHAT_PRIVILEGE_DOES, WHAT_PRIVILEGE_CANT, OPENING } from "./scenarios.js";
 
-const state = { source: "mock", runs: [], workspaceId: process.env.LAB_WORKSPACE_ID || "default" };
+const state = { source: "mock", runs: [], realRuns: [], realBusy: false, workspaceId: process.env.LAB_WORKSPACE_ID || "default" };
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const distDir = join(__dirname, "..", "..", "dist");
 
@@ -99,20 +107,23 @@ export function buildServer({ netguard } = {}) {
   });
 
   app.get("/api/info", (req, res) => {
-    res.json({ source: state.source, realAvailable: Boolean(realDoorFrom()), realReason: PFO_REFUSAL });
+    res.json({ source: state.source, realAvailable: Boolean(realDoorFrom()) || oboConfigNow().ok, realReason: NOT_CONFIGURED });
   });
 
   app.post("/api/mode", (req, res) => {
     const { source } = req.body || {};
     if (source === "real") {
       const door = realDoorFrom();
-      if (!door) return res.status(409).json({ error: PFO_REFUSAL });
-      setAllowedOrigins([door.origin]);
+      const obo = oboConfigNow();
+      if (!door && !obo.ok) return res.status(409).json({ error: NOT_CONFIGURED });
+      // Real mode may reach only the hosts the settings name: the netguard allows exactly those, nothing else.
+      setAllowedOrigins([...(door ? [door.origin] : []), ...(obo.ok ? obo.origins : [])]);
       state.source = "real";
-      return res.json({ source: state.source, doors: door.apps, gateway: door.origin });
+      return res.json({ source: state.source, doors: door ? door.apps : [], gateway: door ? door.origin : null, obo: publicView(obo) });
     }
     if (source !== "mock") return res.status(400).json({ error: "body must be {source:\"mock\"|\"real\"}" });
     state.source = "mock";
+    setAllowedOrigins([]);
     res.json({ source: state.source });
   });
 
@@ -128,6 +139,27 @@ export function buildServer({ netguard } = {}) {
     const out = { app, caller, gateway: door.origin, listing };
     if (listing.ok) out.refusal = await door.call(app, caller, "pf_obo_refusal_probe_tool", {});
     res.json(out);
+  });
+
+  // Real OBO: what is configured (never a secret), and one live run as numbered frames.
+  app.get("/api/real/obo", (req, res) => res.json(publicView(oboConfigNow())));
+
+  app.post("/api/real/obo/run", async (req, res) => {
+    if (state.source !== "real") return res.status(409).json({ error: "switch to Real first (POST /api/mode)" });
+    const body = req.body || {};
+    if (Object.keys(body).some((k) => !["shape", "refusal"].includes(k))) return res.status(400).json({ error: "the only accepted body fields are { shape, refusal }" });
+    if (state.realBusy) return res.status(409).json({ error: "a run is already in progress" });
+    const cfg = oboConfigNow();
+    state.realBusy = true;
+    try {
+      const run = await runReal(cfg, { shape: body.shape, refusal: body.refusal === true });
+      run.id = nextRunId();
+      state.realRuns.push(run);
+      if (state.realRuns.length > 20) state.realRuns.shift();
+      res.json(run);
+    } catch (err) {
+      res.status(err.status || 500).json({ error: String(err.message || "run failed").slice(0, 400) });
+    } finally { state.realBusy = false; }
   });
 
   app.get("/api/catalog", (req, res) => {
@@ -263,10 +295,11 @@ export function buildServer({ netguard } = {}) {
     res.json({ claims: pf.decodePayload(token), verified: pf.verify(token).ok, label: "mock" });
   });
 
-  app.get("/api/runs", (req, res) => res.json({ runs: state.runs }));
+  app.get("/api/runs", (req, res) => res.json({ runs: state.runs, realRuns: state.realRuns }));
 
   app.post("/api/reset", (req, res) => {
     state.runs = [];
+    state.realRuns = [];
     res.json({ ok: true });
   });
 
