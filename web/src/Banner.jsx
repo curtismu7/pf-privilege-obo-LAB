@@ -2,6 +2,15 @@ import React from "react";
 
 // Simulation banner: required first on every page (rule 2).
 export default function SimulationBanner({ source }) {
+  if (source === "real") {
+    return (
+      <div className="sim-banner" role="note" data-testid="sim-banner">
+        <strong>Real</strong> — this page is making live calls to your own PingFederate and Privilege gateway, using the
+        settings in this lab's .env. Tokens are shown in full, as decoded claims beside them (it is a demo); passwords and client secrets are never shown.
+        Switch to Mock for the simulated walk-through.
+      </div>
+    );
+  }
   return (
     <div className="sim-banner" role="note" data-testid="sim-banner">
       <strong>Simulation</strong> — this lab is fully simulated. Mock PingFederate, mock

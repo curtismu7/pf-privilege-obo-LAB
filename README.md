@@ -2,7 +2,7 @@
 
 Tier: Demo
 
-Demo-tier standalone lab: the **PingFederate → Privilege on-behalf-of (OBO) chain**, simulated.
+Demo-tier standalone lab: the **PingFederate → Privilege on-behalf-of (OBO) chain**, simulated in Mock and live in Real.
 An AI agent acts for a signed-in user; the lab shows how the user's identity, the agent's identity
 and Privilege's enforcement fit together on one screen, plus the twelve issues we hit building it
 for real.
@@ -45,17 +45,30 @@ docker compose up --build -d     # publishes 127.0.0.1:7812 only
 
 ## Modes (rule 19)
 
-Mock / Real toggle in the header. **This lab is mock-only**: Real is disabled with a reason
-tooltip, `POST /api/mode {"source":"real"}` answers 409. Everything runs in-process against
-`.example` hosts; nothing leaves the machine. Raw token bodies stay server-side — runs record
-claims and a sha256/8 hash only. Mock tokens are labelled (`mock: true`).
+Mock / Real toggle in the header.
+
+- **Mock** (default): the simulated chain above. Everything runs in-process against `.example` hosts; nothing leaves the
+  machine. Mock tokens are labelled (`mock: true`).
+- **Real**: one live on-behalf-of run against your own tenant, shown as numbered frames (open one for what was sent,
+  what came back, the decoded token and the spec notes). It is available only when this lab's own `.env` is filled in
+  (copy `.env.example`); otherwise Real is disabled with a reason and `POST /api/mode {"source":"real"}` answers 409.
+  - **Agent-side (Pass Agent Token):** sign in as a person (PingFederate pi.flow), the agent makes the RFC 8693 exchange,
+    the token goes to the Privilege door, which lists tools. Optionally a made-up token is refused.
+  - **Gateway OBO (Auth Mode OBO):** the same, then the gateway makes its own exchange for the backend, and a tool on the
+    backend reports the claims it received (subject, audience, the nested `act` chain).
+  - Real reaches only the PingFederate and gateway hosts named in `.env` (the netguard allows exactly those).
+    Tokens are shown in full (this is a demo; the family shows tokens raw) next to their decoded claims. Client secrets
+    and the person's password are write-only: never returned, shown or logged. What Privilege checked is not reported as if the gateway said it: a real gateway returns no
+    per-check detail, so the door frame says accepted or refused and labels the checks inferred.
+  - Docker: `docker compose up --build -d` reads `.env` (optional); the publish stays `127.0.0.1` only.
+- The video build lives in `video/` (script first, then a sample, then the live take).
 
 ## Safety
 
 - Loopback-only host bind (0.0.0.0 inside the container only because Docker routes via eth0;
   the host publish is pinned to `127.0.0.1`).
 - Host allowlist (`LAB_ALLOWED_HOSTS`) + same-origin write guard + JSON-only writes (415).
-- Zero real outbound calls. No identifiers from other projects. No secrets.
+- Mock: zero real outbound calls. Real: only the hosts named in your own `.env`. No identifiers from other projects in the repo. No secrets.
 
 ## Tests
 
