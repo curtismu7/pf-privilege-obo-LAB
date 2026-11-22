@@ -87,10 +87,10 @@ export default function RealObo({ onRan }) {
     setBusy(true); setError(null); setOpen(null);
     try {
       const r = await postJson("/api/real/obo/run", { shape, refusal });
-      if (r.status === 200) { setRun(r.body); setError(null); onRan?.(); }
-      else { setRun(null); setError(r.body?.error || `HTTP ${r.status}`); }
+      if (r.status === 200) { setRun(r.body); setError(null); onRan?.(r.body?.id); }
+      else { setRun(null); setError(r.body?.error || `HTTP ${r.status}`); onRan?.(null); }
     } catch (err) {
-      setRun(null); setError(`Could not reach the lab: ${String(err?.message || err).slice(0, 120)}`);
+      setRun(null); setError(`Could not reach the lab: ${String(err?.message || err).slice(0, 120)}`); onRan?.(null);
     } finally { setBusy(false); }
   };
   const stoppedEarly = run?.frames?.some((f) => f.state === "skipped");

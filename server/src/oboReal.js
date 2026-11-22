@@ -124,7 +124,13 @@ function scrubber(cfg, extra = []) {
   return (text) => { let out = String(text ?? ""); for (const sec of secrets) out = out.split(sec).join("<redacted>"); return out; };
 }
 
-async function http(url, { method = "GET", headers = {}, body, signal, wantId } = {}) {
+// A call that would START after the run's deadline is not made (each sequential call checks; sign-in alone is three of them).
+class DeadlineError extends Error {
+  constructor() { super("The run's deadline passed before this call could start, so it was not made."); this.deadline = true; }
+}
+
+async function http(url, { method = "GET", headers = {}, body, signal, wantId, until } = {}) {
+  if (until !== undefined && Date.now() >= until) throw new DeadlineError();
   const res = await fetch(url, { method, headers, body, redirect: "manual", signal: signal || AbortSignal.timeout(TIMEOUT_MS) });
   if (res.status >= 300 && res.status < 400) { res.body?.cancel().catch(() => {}); return { status: res.status, headers: res.headers, text: "", redirected: true }; }
   const reader = res.body?.getReader();
@@ -152,16 +158,17 @@ const form = (o) => new URLSearchParams(o).toString();
 const basic = (id, secret) => `Basic ${Buffer.from(`${id}:${secret}`).toString("base64")}`;
 
 // PingFederate's authentication API: the person signs in with no redirect (pi.flow). -> { idToken } or throws.
-async function signIn(cfg) {
+async function signIn(cfg, until) {
   const base = cfg.issuer;
   const verifier = randomBytes(32).toString("base64url");
   const challenge = createHash("sha256").update(verifier).digest("base64url");
-  const a = await http(`${base}/as/authorization.oauth2?${form({ client_id: cfg.signin.client, response_type: "code", response_mode: "pi.flow", scope: "openid profile", redirect_uri: cfg.signin.redirect, code_challenge: challenge, code_challenge_method: "S256" })}`);
+  const a = await http(`${base}/as/authorization.oauth2?${form({ client_id: cfg.signin.client, response_type: "code", response_mode: "pi.flow", scope: "openid profile", redirect_uri: cfg.signin.redirect, code_challenge: challenge, code_challenge_method: "S256" })}`, { until });
   let flow;
   try { flow = JSON.parse(a.text); } catch { flow = {}; }
   if (!FLOW_ID.test(flow.id || "")) throw new Error(`sign-in did not start (HTTP ${a.status}${flow.code ? `, ${String(flow.code).slice(0, 60)}` : ""})`);
   const cookie = (a.headers.getSetCookie?.() || []).map((c) => c.split(";")[0]).join("; ");
   const s = await http(`${base}/pf-ws/authn/flows/${flow.id}`, {
+    until,
     method: "POST",
     headers: { "content-type": "application/vnd.pingidentity.checkUsernamePassword+json", "X-XSRF-Header": "PingFederate", ...(cookie ? { cookie } : {}) },
     body: JSON.stringify({ username: cfg.user.name, password: cfg.user.password }),
@@ -174,14 +181,14 @@ async function signIn(cfg) {
   const params = { grant_type: "authorization_code", code, redirect_uri: cfg.signin.redirect, code_verifier: verifier };
   if (cfg.signin.auth === "basic") headers.authorization = basic(cfg.signin.client, cfg.signin.secret);
   else { params.client_id = cfg.signin.client; if (cfg.signin.auth === "post") params.client_secret = cfg.signin.secret; }
-  const t = await http(`${base}/as/token.oauth2`, { method: "POST", headers, body: form(params) });
+  const t = await http(`${base}/as/token.oauth2`, { method: "POST", headers, body: form(params), until });
   let tok;
   try { tok = JSON.parse(t.text); } catch { tok = {}; }
   if (!tok.id_token) throw new Error(`no ID token (HTTP ${t.status}, ${String(tok.error_description || tok.error || "no reason").slice(0, 120)})`);
   return { idToken: tok.id_token };
 }
 
-async function exchange(cfg, idToken, door) {
+async function exchange(cfg, idToken, door, until) {
   const params = {
     grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
     requested_token_type: "urn:ietf:params:oauth:token-type:access_token",
@@ -191,15 +198,17 @@ async function exchange(cfg, idToken, door) {
     scope: door.scope,
   };
   const r = await http(`${cfg.issuer}/as/token.oauth2`, {
+    until,
     method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", authorization: basic(cfg.agentClient.id, cfg.agentClient.secret) }, body: form(params),
   });
   let j;
   try { j = JSON.parse(r.text); } catch { j = {}; }
-  return { status: r.status, accessToken: j.access_token || null, error: j.error_description || j.error || null, params };
+  return { status: r.status, accessToken: j.access_token || null, error: j.error_description || j.error || null, code: typeof j.error === "string" ? j.error.slice(0, 40) : null, params };
 }
 
-async function rpc(url, token, method, params) {
+async function rpc(url, token, method, params, until) {
   const r = await http(url, {
+    until,
     method: "POST",
     headers: { "content-type": "application/json", accept: "application/json, text/event-stream", authorization: `Bearer ${token}` },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
@@ -236,7 +245,7 @@ const SPEC = {
   actor: [{ ref: "RFC 8693 §4.1", note: "A consumer looks at the top-level claims and the current actor; earlier actors in a nested act are informational." }],
 };
 
-export async function runReal(cfg, { shape, refusal = false } = {}) {
+export async function runReal(cfg, { shape, refusal = false, deadlineMs = RUN_DEADLINE_MS } = {}) {
   if (!cfg?.ok) throw Object.assign(new Error(cfg?.problem || NOT_CONFIGURED), { status: 409 });
   if (!["agent", "gateway"].includes(shape)) throw Object.assign(new Error("shape must be agent or gateway"), { status: 400 });
   const door = cfg.doors[shape];
@@ -245,12 +254,12 @@ export async function runReal(cfg, { shape, refusal = false } = {}) {
   const frames = [];
   const started = Date.now();
   let failed = false;
-  const deadline = started + RUN_DEADLINE_MS;
+  const deadline = started + deadlineMs;
 
   // `at` is when the lab had this frame's reply (rule 27: the run record and the stdout line carry the same time).
   const add = (f) => { frames.push({ n: frames.length + 1, at: new Date().toISOString(), ...f }); };
   const timed = async (id, title, fn) => {
-    if (!failed && Date.now() > deadline) { failed = true; add({ id, title, state: "error", summary: `The run took longer than ${RUN_DEADLINE_MS / 1000} s, so it was stopped.` }); return null; }
+    if (!failed && Date.now() > deadline) { failed = true; add({ id, title, state: "error", summary: `The run took longer than ${deadlineMs / 1000} s, so it was stopped.`, deadline: true }); return null; }
     if (failed) { add({ id, title, state: "skipped", summary: "Skipped: an earlier step did not complete." }); return null; }
     const t0 = Date.now();
     try {
@@ -261,14 +270,14 @@ export async function runReal(cfg, { shape, refusal = false } = {}) {
       return f;
     } catch (err) {
       failed = true;
-      add({ id, title, ms: Date.now() - t0, state: "error", summary: scrub(err?.message || "failed").slice(0, 300) });
+      add({ id, title, ms: Date.now() - t0, state: "error", summary: scrub(err?.message || "failed").slice(0, 300), ...(err?.deadline ? { deadline: true } : {}) });
       return null;
     }
   };
 
   let idToken = null;
   await timed("signin", "Sign in as the person", async () => {
-    const si = await signIn(cfg);
+    const si = await signIn(cfg, deadline);
     idToken = si.idToken;
     const info = tokenInfo(idToken);
     return {
@@ -283,7 +292,7 @@ export async function runReal(cfg, { shape, refusal = false } = {}) {
 
   let access = null;
   await timed("exchange", "Exchange for an access token (RFC 8693)", async () => {
-    const x = await exchange(cfg, idToken, door);
+    const x = await exchange(cfg, idToken, door, deadline);
     const request = {
       method: "POST", url: `${new URL(cfg.issuer).host}/as/token.oauth2`,
       params: [
@@ -292,14 +301,14 @@ export async function runReal(cfg, { shape, refusal = false } = {}) {
         { name: "actor_token", value: "not sent" },
       ],
     };
-    if (!x.accessToken) return { state: "error", summary: `PingFederate refused the exchange (HTTP ${x.status}): ${scrub(x.error || "no reason").slice(0, 200)}`, request, response: { status: x.status }, spec: SPEC.exchange };
+    if (!x.accessToken) return { state: "error", summary: `PingFederate refused the exchange (HTTP ${x.status}): ${scrub(x.error || "no reason").slice(0, 200)}`, request, response: { status: x.status, error: x.code }, spec: SPEC.exchange };
     access = x.accessToken;
     const info = tokenInfo(access);
     return { state: "ok", summary: `Access token issued. sub ${info.claims?.sub ?? "?"}, act ${JSON.stringify(info.claims?.act ?? null)}, aud ${JSON.stringify(info.claims?.aud ?? null)}.`, request, response: { status: x.status }, token: { kind: "access token", ...info }, spec: [...SPEC.exchange, ...SPEC.token] };
   });
 
   await timed("door", shape === "agent" ? "Call the door with that token" : "Call the gateway door with that token", async () => {
-    const r = await rpc(door.url, access, "tools/list", {});
+    const r = await rpc(door.url, access, "tools/list", {}, deadline);
     const request = { method: "POST", url: new URL(door.url).host + new URL(door.url).pathname, params: [{ name: "Authorization", value: `Bearer ${access}` }, { name: "jsonrpc method", value: "tools/list" }] };
     const challenge = { challenge: challengeOf(r.headers) };
     if (r.status === 401 || r.status === 403) return { state: "refused", summary: `The door refused the token: HTTP ${r.status}.`, request, response: { status: r.status, ...challenge }, spec: SPEC.refused };
@@ -320,7 +329,7 @@ export async function runReal(cfg, { shape, refusal = false } = {}) {
 
   if (shape === "gateway") {
     await timed("whoami", `Ask the backend who it saw (${door.tool})`, async () => {
-      const r = await rpc(door.url, access, "tools/call", { name: door.tool, arguments: {} });
+      const r = await rpc(door.url, access, "tools/call", { name: door.tool, arguments: {} }, deadline);
       const request = { method: "POST", url: new URL(door.url).host + new URL(door.url).pathname, params: [{ name: "Authorization", value: `Bearer ${access}` }, { name: "jsonrpc method", value: "tools/call" }, { name: "tool", value: door.tool }] };
       if (r.status === 401 || r.status === 403) return { state: "refused", summary: `The gateway refused the call: HTTP ${r.status}.`, request, response: { status: r.status, challenge: challengeOf(r.headers) }, spec: SPEC.refused };
       if (r.status !== 200) return { state: "error", summary: `The gateway answered HTTP ${r.status}, which is not an authorization decision.`, request, response: { status: r.status, body: scrub(r.text).slice(0, 200) }, spec: [] };
@@ -335,7 +344,7 @@ export async function runReal(cfg, { shape, refusal = false } = {}) {
 
   if (refusal) {
     await timed("refused", "Try the same call with a made-up token", async () => {
-      const r = await rpc(door.url, MADE_UP_TOKEN, "tools/list", {});
+      const r = await rpc(door.url, MADE_UP_TOKEN, "tools/list", {}, deadline);
       const request = { method: "POST", url: new URL(door.url).host + new URL(door.url).pathname, params: [{ name: "Authorization", value: `Bearer ${MADE_UP_TOKEN}` }, { name: "jsonrpc method", value: "tools/list" }] };
       const challenge = challengeOf(r.headers);
       let body = null;

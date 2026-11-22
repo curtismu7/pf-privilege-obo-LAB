@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import TopMenu from "./top-menu/TopMenu.jsx";
 import TalkTrackDialog from "./talk-track/TalkTrackDialog.jsx";
 import VerifyMark from "./components/VerifyMark.jsx";
@@ -13,6 +13,7 @@ import ChainSteps from "./ChainSteps.jsx";
 import OpeningCard from "./OpeningCard.jsx";
 import { useApi, postJson, getRunObservability } from "./api.js";
 import RunObservability from "./run-observability/RunObservability.jsx";
+import RunObsLoading from "./RunObsLoading.jsx";
 import { getDiagram } from "./diagram-data.js";
 import PrivilegeCheck from "./privilege-check/PrivilegeCheck.jsx";
 
@@ -62,10 +63,12 @@ export default function App() {
   }, [theme]);
   const [presenter, setPresenter] = useState(false);
   const [talkOpen, setTalkOpen] = useState(false);
-  const [obs, setObs] = useState(null); // the run record for the current mode (null = no run yet)
+  const [obs, setObs] = useState({ key: null, record: null }); // the record read for `key`: { record: null = no such run | the record | { error, message } }
+  const [obsTarget, setObsTarget] = useState(undefined); // the run to read: its id, undefined = the newest run of this mode, null = an attempt that began no run
   const [obsTick, setObsTick] = useState(0); // bumped after each run, and by the Re-read button
   const [ranIn, setRanIn] = useState(null); // { n, source } of the latest run: the delayed re-read belongs to a Real run only
   const [obsBusy, setObsBusy] = useState(false);
+  const [modeError, setModeError] = useState(null); // the server's reason when it refuses a mode switch (a Real run in flight)
   const [obsReadAt, setObsReadAt] = useState(null);
 
   useEffect(() => {
@@ -81,40 +84,48 @@ export default function App() {
     if (info.data) setSource(info.data.source);
   }, [info.data]);
 
-  // Rule 27: read the run record after every run, every Mock/Real switch and on demand.
+  // Rule 27: read the record of the run just made after every run, every Mock/Real switch and on demand. The record belongs to the key it was read
+  // for (mode and run): another run, or the other mode, never shows it, it shows "collecting" until its own record is read.
+  const obsKey = `${source}|${obsTarget === undefined ? "newest" : obsTarget}`;
+  const rereadFresh = useRef(false); // set by the Re-read button and the delayed re-read: the next read rebuilds the record instead of using the kept one
+  const rereadNow = () => { rereadFresh.current = true; setObsTick((n) => n + 1); };
   useEffect(() => {
+    if (obsTarget === null) return undefined; // the attempt began no run: nothing to read, and the older run's record is not its record
     let live = true;
     setObsBusy(true);
-    getRunObservability()
-      .then(({ status, body }) => {
-        if (!live) return;
-        if (status === 200 && Array.isArray(body?.rows)) setObs(body);
-        else if (status !== 204 && body?.error) setObs({ error: body.error, message: body.message });
-        else setObs(null);
-        setObsReadAt(new Date());
-      })
-      .catch(() => live && setObs({ error: "unreachable", message: "The run record could not be loaded." }))
+    const fresh = rereadFresh.current;
+    rereadFresh.current = false;
+    getRunObservability(obsTarget, { fresh })
+      .then((record) => { if (live) { setObs({ key: obsKey, record }); setObsReadAt(new Date()); } })
+      .catch(() => live && setObs({ key: obsKey, record: { error: "unreachable", message: "The run record could not be loaded." } }))
       .finally(() => live && setObsBusy(false));
     return () => { live = false; };
-  }, [source, obsTick]);
+  }, [obsKey, obsTick]);
 
   // Real only: a collector ships lines with a delay, so the run just made reads "not logged" at first. Read once more about 5 s after it.
   useEffect(() => {
     if (source !== "real" || ranIn?.source !== "real") return undefined;
-    const t = setTimeout(() => setObsTick((n) => n + 1), REREAD_MS);
+    const t = setTimeout(rereadNow, REREAD_MS);
     return () => clearTimeout(t);
   }, [ranIn, source]);
 
-  const ran = () => { setRanIn((r) => ({ n: (r?.n ?? 0) + 1, source })); setObsTick((n) => n + 1); };
+  // A run finished: read ITS record (id). null = an attempt that began no run (a failed start): show the empty state, not the older run's record.
+  const ran = (id) => {
+    setObsTarget(id === null ? null : id || undefined);
+    if (id !== null) setRanIn((r) => ({ n: (r?.n ?? 0) + 1, source }));
+    setObsTick((n) => n + 1);
+  };
 
   const switchMode = async (target) => {
     const r = await postJson("/api/mode", { source: target });
     if (r.status === 200) {
       setSource(r.body.source);
+      setModeError(null);
+      setObsTarget(undefined); // a run id belongs to one mode: after a switch read the newest run of the new mode
       // Rule 19: the toggle reloads all data after switching.
       const c = await fetch("/api/catalog").then((x) => x.json()).catch(() => null);
       if (c) catalog.data = c;
-    }
+    } else if (r.status === 409 && r.body?.error === "run_in_progress") setModeError(r.body.message);
   };
 
   const data = catalog.data;
@@ -158,6 +169,7 @@ export default function App() {
 
         {source !== "real" && <PrivilegeCheck />}
         <SimulationBanner source={source} />
+        {modeError && <p className="run-result refused" role="alert" data-testid="mode-error">{modeError}</p>}
         <OpeningCard opening={data && data.opening} />
         {presenter && (
           <aside className="presenter-say" data-testid="presenter-say" aria-label="Talk track">
@@ -169,20 +181,22 @@ export default function App() {
         ) : (
           <>
             <ScenarioPicker scenarios={(data && data.scenarios) || []} active={activeScenario} onSelect={setActiveScenario} />
-            <FlowSim catalog={data} activeScenario={activeScenario} speed={speed} onScenarioDone={ran} />
+            <FlowSim catalog={data} activeScenario={activeScenario} speed={speed} onScenarioDone={(r) => ran(r?.id)} />
           </>
         )}
         <div className="run-obs-slot">
           {source === "real" && (
             <div className="run-obs-tools">
-              <button type="button" className="run-obs-reread" data-testid="ro-reread" disabled={obsBusy} onClick={() => setObsTick((n) => n + 1)}>Re-read logs</button>
+              <button type="button" className="run-obs-reread" data-testid="ro-reread" disabled={obsBusy} onClick={rereadNow}>Re-read logs</button>
               <span className="run-obs-note" data-testid="ro-read-note">
                 {obsReadAt ? `Read at ${obsReadAt.toLocaleTimeString()}. ` : ""}A collector ships lines with a delay: the run just made may read "not logged" until it has. The page reads again about 5 seconds after each run. "Not found (partial search)" means the search was cut, so absence is not proof.
               </span>
             </div>
           )}
           {/* After a Mock/Real switch the old mode's record stays in `obs` until the new read returns: it is not shown under the new label. */}
-          <RunObservability record={obs?.rows && obs.source !== (source === "real" ? "real" : "mock") ? null : obs} source={source === "real" ? "real" : "mock"} streams={RUN_STREAMS} />
+          {obsTarget !== null && obs.key !== obsKey
+            ? <RunObsLoading />
+            : <RunObservability record={obsTarget === null ? null : obs.record?.rows && obs.record.source !== (source === "real" ? "real" : "mock") ? null : obs.record} source={source === "real" ? "real" : "mock"} streams={RUN_STREAMS} />}
         </div>
         <ChainSteps steps={(data && data.steps) || []} />
         <IssuesPanel issues={(data && data.issues) || []} does={(data && data.does) || []} cant={(data && data.cant) || []} />

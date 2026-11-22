@@ -60,12 +60,17 @@ function tokenSummary(token) {
 
 // runLog / runLogWrite: the run's decision log and where its one-line-per-decision output goes (stdout by default). runObsReaders: the log
 // readers for a Real record (readersFromEnv() by default: Elasticsearch with a read-only key, nothing else unless opted in).
-export function buildServer({ netguard, runLog: injectedRunLog, runLogWrite, runObsReaders } = {}) {
+export function buildServer({ netguard, runLog: injectedRunLog, runLogWrite, runObsReaders, recordTtlMs = 10_000, now = () => Date.now() } = {}) {
   // Rule 1: zero real outbound by default. The mock issuer/gateway/backend are
   // in-process, so nothing here has a reason to leave the machine.
   installNetguard();
   const runLog = injectedRunLog ?? createRunLog({ write: runLogWrite });
+  let generation = 0; // bumped by Reset: a Real run that started before it must not re-enter the stores when it finishes
+  // A Real record costs up to seven Elasticsearch searches. The record built for a run is kept for a few seconds (by mode and run id) so repeated reads do not
+  // fire them again; Reset drops it, and the page's deliberate Re-read (?fresh=1) rebuilds it, because it exists to read lines the collector shipped late.
+  const recordCache = new Map();
   const app = express();
+  app.locals.recordCache = recordCache; // exposed for the tests: the kept Real records (size 0 after Reset)
   app.disable("x-powered-by");
   app.use(express.json({ limit: "64kb" }));
   // Writes must be JSON: express.json skips other types, so refuse them explicitly.
@@ -118,6 +123,8 @@ export function buildServer({ netguard, runLog: injectedRunLog, runLogWrite, run
 
   app.post("/api/mode", (req, res) => {
     const { source } = req.body || {};
+    // A Real run in flight records itself under Real when it ends: switching under it would leave the page showing one mode while the run finishes in the other.
+    if (state.realBusy) return res.status(409).json({ error: "run_in_progress", message: "A Real run is still in progress: wait for it to finish before switching mode." });
     if (source === "real") {
       const door = realDoorFrom();
       const obo = oboConfigNow();
@@ -157,12 +164,15 @@ export function buildServer({ netguard, runLog: injectedRunLog, runLogWrite, run
     if (state.realBusy) return res.status(409).json({ error: "a run is already in progress" });
     const cfg = oboConfigNow();
     state.realBusy = true;
+    const startedIn = generation;
     try {
       const run = await runReal(cfg, { shape: body.shape, refusal: body.refusal === true });
       run.id = nextRunId();
-      state.realRuns.push(run);
-      if (state.realRuns.length > 20) state.realRuns.shift();
-      runLog.recordRun({ source: "real", runId: run.id, startedAt: run.startedAt, events: observeRealRun({ run }) });
+      if (startedIn === generation) {
+        state.realRuns.push(run);
+        if (state.realRuns.length > 20) state.realRuns.shift();
+        runLog.recordRun({ source: "real", runId: run.id, startedAt: run.startedAt, events: observeRealRun({ run }) });
+      }
       res.json(run);
     } catch (err) {
       res.status(err.status || 500).json({ error: String(err.message || "run failed").slice(0, 400) });
@@ -298,7 +308,10 @@ export function buildServer({ netguard, runLog: injectedRunLog, runLogWrite, run
     // Rule 27: the lab minted a person token and an access token only when it built them itself (not a caller-supplied or garbage bearer).
     const minted = !req.body?.token && !garbageBearer;
     const claims = pf.decodePayload(effToken);
-    const who = { sub: claims?.sub, actor: claims?.act?.sub };
+    // `"{}".sub` is String.prototype.sub, so only an object with a string sub names an actor; any other act is malformed.
+    const act = claims?.act;
+    const actState = act === undefined ? "absent" : act && typeof act === "object" && typeof act.sub === "string" ? "object" : "malformed";
+    const who = { sub: claims?.sub, actor: actState === "object" ? act.sub : undefined, actState };
     runLog.recordRun({ source: "mock", runId: run.id, startedAt: run.at, events: observeMockRun({ run, who, minted }) });
     res.json(run);
   });
@@ -309,14 +322,29 @@ export function buildServer({ netguard, runLog: injectedRunLog, runLogWrite, run
     res.json({ claims: pf.decodePayload(token), verified: pf.verify(token).ok, label: "mock" });
   });
 
-  // Run observability (rule 27): what each layer left behind for the LATEST run in the CURRENT mode. Mock rows are simulated (computed by the
-  // mock on that run); Real rows are the replies the lab received plus whatever the Elasticsearch reader found.
-  app.get("/api/run-observability", async (_req, res) => {
+  // Run observability (rule 27): what each layer left behind for a run in the CURRENT mode. Mock rows are simulated (computed by the mock on
+  // that run); Real rows are the replies the lab received plus whatever the Elasticsearch reader found. ?runId=<id>: that run's record, only if it
+  // is one of the last three runs of this mode, else 204 (a 204 has no body, so the reason is in the X-Run-Observability-Note header); a bad id is
+  // 400. Without runId: the newest finished run of this mode.
+  app.get("/api/run-observability", async (req, res) => {
     res.set("Cache-Control", "no-store");
-    const run = runLog.forSource(state.source);
-    if (!run) return res.status(204).end(); // no run yet in this mode: not an error, the page shows its empty state
+    const asked = req.query.runId;
+    if (asked !== undefined && !(typeof asked === "string" && /^[A-Za-z0-9._-]{1,64}$/.test(asked))) return res.status(400).json({ error: "bad_run_id", message: "runId must be 1 to 64 characters from A-Z a-z 0-9 . _ -" });
+    const run = runLog.forSource(state.source, asked);
+    if (!run) { // no run yet in this mode, or not that one: not an error, the page shows its empty state
+      if (asked !== undefined) res.set("X-Run-Observability-Note", "No run with that id in this mode");
+      return res.status(204).end();
+    }
     try {
-      res.json(await buildRunRecord({ run, readers: runObsReaders ?? readersFromEnv() }));
+      const key = `${state.source}|${run.runId}`;
+      const hit = state.source === "real" && req.query.fresh !== "1" ? recordCache.get(key) : null;
+      if (hit && now() - hit.at < recordTtlMs) return res.json(hit.record);
+      const record = await buildRunRecord({ run, readers: runObsReaders ?? readersFromEnv() });
+      if (state.source === "real") {
+        for (const [k, v] of recordCache) if (now() - v.at >= recordTtlMs) recordCache.delete(k);
+        recordCache.set(key, { at: now(), record });
+      }
+      res.json(record);
     } catch (e) {
       if (e instanceof RunObsError) return res.status(e.status).json({ error: e.code, message: e.message });
       res.status(500).json({ error: "run_observability_failed", message: "The run record could not be built." });
@@ -328,7 +356,9 @@ export function buildServer({ netguard, runLog: injectedRunLog, runLogWrite, run
   app.post("/api/reset", (req, res) => {
     state.runs = [];
     state.realRuns = [];
+    generation += 1;
     runLog.reset();
+    recordCache.clear();
     res.json({ ok: true });
   });
 
