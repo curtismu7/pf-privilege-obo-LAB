@@ -175,3 +175,49 @@ describe("ChainSteps", () => {
     expect(screen.getByText("sub = user")).toBeTruthy();
   });
 });
+
+// ---- run observability (rule 27) in the page ----------------------------------------------------------------------------------
+import { mockRecord, realRecord } from "../web/src/run-observability/fixtures.js";
+
+const res = (body, status = 200) => Promise.resolve({ ok: status < 400, status, json: () => Promise.resolve(body) });
+
+describe("App: what each layer logged for this run", () => {
+  it("shows the empty state before a run, then reads the record after a scenario run (the Mock record, labelled Mock)", async () => {
+    let record = null;
+    const calls = mockFetch({ "GET /api/run-observability": () => (record ? res(record) : Promise.resolve({ ok: true, status: 204, json: () => Promise.reject(new Error("no body")) })) });
+    render(<App />);
+    await waitFor(() => expect(screen.getByTestId("ro-empty")).toBeTruthy());
+    expect(screen.queryByTestId("ro-reread")).toBeNull(); // the Re-read control is a Real-mode control
+    record = mockRecord;
+    await waitFor(() => expect(screen.getByRole("button", { name: "Cedar" })).toBeTruthy());
+    const before = calls.filter((c) => c.path === "/api/run-observability").length;
+    fireEvent.click(screen.getByRole("button", { name: "Cedar" }));
+    await waitFor(() => expect(screen.getByTestId("ro-table")).toBeTruthy(), { timeout: 8000 });
+    expect(calls.filter((c) => c.path === "/api/run-observability").length).toBeGreaterThan(before);
+  });
+
+  it("a record that is for the other mode is refused on screen, not shown under the wrong label", async () => {
+    mockFetch({ "GET /api/run-observability": () => res(realRecord) });
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
+    expect(screen.queryByTestId("ro-table")).toBeNull();
+  });
+
+  it("a failed read is an alert with the server's reason, never an empty table", async () => {
+    mockFetch({ "GET /api/run-observability": () => res({ error: "bad_window", message: "endedAt is before startedAt" }, 400) });
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/endedAt is before startedAt/));
+  });
+
+  it("Real mode has the Re-read control and the delay note", async () => {
+    mockFetch({
+      "GET /api/info": () => res({ source: "real", realAvailable: true }),
+      "GET /api/real/obo": () => res({ configured: true, user: "someone", shapes: { agent: true, gateway: true } }),
+      "GET /api/run-observability": () => res(realRecord),
+    });
+    render(<App />);
+    await waitFor(() => expect(screen.getByTestId("ro-reread")).toBeTruthy());
+    expect(screen.getByTestId("ro-read-note").textContent).toMatch(/ships lines with a delay/);
+    await waitFor(() => expect(screen.getByTestId("ro-table")).toBeTruthy());
+  });
+});

@@ -68,7 +68,7 @@ function FrameDetail({ frame }) {
   );
 }
 
-export default function RealObo() {
+export default function RealObo({ onRan }) {
   const view = useApi("/api/real/obo");
   const [picked, setPicked] = useState(null);
   const [refusal, setRefusal] = useState(true);
@@ -87,7 +87,7 @@ export default function RealObo() {
     setBusy(true); setError(null); setOpen(null);
     try {
       const r = await postJson("/api/real/obo/run", { shape, refusal });
-      if (r.status === 200) { setRun(r.body); setError(null); }
+      if (r.status === 200) { setRun(r.body); setError(null); onRan?.(); }
       else { setRun(null); setError(r.body?.error || `HTTP ${r.status}`); }
     } catch (err) {
       setRun(null); setError(`Could not reach the lab: ${String(err?.message || err).slice(0, 120)}`);

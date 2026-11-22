@@ -16,6 +16,13 @@ export function useApi(path, deps = []) {
   return { data, error };
 }
 
+// The run record for the latest run in the current mode (rule 27). 204 = no run yet in this mode.
+export async function getRunObservability() {
+  const r = await fetch("/api/run-observability", { cache: "no-store" });
+  const body = r.status === 204 ? null : await r.json().catch(() => ({ error: "unreadable", message: `The run record could not be read (HTTP ${r.status}).` }));
+  return { status: r.status, body };
+}
+
 export async function postJson(path, body) {
   const r = await fetch(path, {
     method: "POST",

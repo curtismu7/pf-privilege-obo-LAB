@@ -247,7 +247,8 @@ export async function runReal(cfg, { shape, refusal = false } = {}) {
   let failed = false;
   const deadline = started + RUN_DEADLINE_MS;
 
-  const add = (f) => { frames.push({ n: frames.length + 1, ...f }); };
+  // `at` is when the lab had this frame's reply (rule 27: the run record and the stdout line carry the same time).
+  const add = (f) => { frames.push({ n: frames.length + 1, at: new Date().toISOString(), ...f }); };
   const timed = async (id, title, fn) => {
     if (!failed && Date.now() > deadline) { failed = true; add({ id, title, state: "error", summary: `The run took longer than ${RUN_DEADLINE_MS / 1000} s, so it was stopped.` }); return null; }
     if (failed) { add({ id, title, state: "skipped", summary: "Skipped: an earlier step did not complete." }); return null; }
@@ -349,7 +350,7 @@ export async function runReal(cfg, { shape, refusal = false } = {}) {
   }
 
   const ok = frames.every((f) => f.state === "ok" || (f.id === "refused" && f.state === "refused"));
-  const run = { shape, at: new Date().toISOString(), ok, ms: Date.now() - started, frames, user: cfg.user.name };
+  const run = { shape, startedAt: new Date(started).toISOString(), at: new Date().toISOString(), ok, ms: Date.now() - started, frames, user: cfg.user.name };
   // Defence in depth: whatever an upstream echoed, no secret survives in the serialized run.
   return JSON.parse(scrub(JSON.stringify(run)));
 }

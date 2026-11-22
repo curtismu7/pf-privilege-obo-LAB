@@ -1,5 +1,7 @@
 // Runtime netguard: zero real outbound. Every non-loopback socket, DNS lookup, fetch and UDP send is refused and recorded.
 // The mock authorization server is in-process, so nothing in this app has a reason to leave the machine.
+// Real mode's run-observability reader (the vendored runObservabilityReaders.js) calls the guarded fetch below, so it can reach a LOOPBACK
+// RUN_OBS_ES_URL and nothing else.
 import dns from 'node:dns';
 import net from 'node:net';
 import dgram from 'node:dgram';

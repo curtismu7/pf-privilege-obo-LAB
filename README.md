@@ -63,6 +63,29 @@ Mock / Real toggle in the header.
   - Docker: `docker compose up --build -d` reads `.env` through compose's `env_file` (optional; needs Compose 2.24 or later). Compose treats `$` and ` #` in values specially, so single-quote a password or secret that contains them. The publish stays `127.0.0.1` only.
 - The video build lives in `video/` (script first, then a sample, then the live take).
 
+## What each layer logged for this run (rule 27)
+
+Under the run the page shows `RunObservability`, the family's shared panel (vendored byte for byte from AI-DEMO-Standalone `shared/run-observability`:
+`web/src/run-observability/`, the core `server/src/runObservability.js`, the log readers `server/src/runObservabilityReaders.js` and
+`scripts/run-observability-checkPin.mjs`, pinned by `run-observability.sha256`; `test/run-observability.test.js` calls `checkPin`). It lists, for the
+latest run in the current mode, what each of six layers (person, agent, Authorize, Privilege, agent gateway, resource server) left behind, in time
+order, each row with an origin: `simulated` (Mock: the lab's own mock computed it), `response` (Real: a reply the lab received, never presented as a
+log line), `logged` (Real: a line read from the product's own log) or `not-logged` (no line was found; the product may not log this event).
+
+- **The lab's own decisions** are written to stdout, one line each: `[time] INFO: pf-privilege-obo-lab decision layer=… check=… actor=… result=passed|stopped|unclear mode=…`.
+  No token, ever. The lines use none of the words the family's matchers read, so a lab line can never become a `logged` row on the wrong layer.
+- **Mock** rows: the sign-in and exchange the mock issuer did, the workload-identity check (gateway layer), the grant and AI policy (Privilege layer) and the backend,
+  each only if `runChain` reached it. An earlier refusal leaves the later layers `not-logged`.
+- **Real** rows: one `response` row per frame the run received (PingFederate's sign-in and exchange replies, the door's status, the backend's report), plus any `logged` row the
+  Elasticsearch reader finds. Without `RUN_OBS_ES_URL` and `RUN_OBS_ES_READ_APIKEY` the log layers say `unreachable` and what to set; the lab keeps working.
+- **What is `not-logged` today**: the person's sign-in (PingFederate's `audit.log` is not shipped to stdout), Authorize (this lab does not call it), and a gateway refusal
+  (no refusal line is confirmed in any gateway log yet). A missing line is never turned into a row.
+- **Where the logs live and stream** (the panel's collapsible block says the same): this lab's stdout, then the collector to `demo-logs-<service>`; PingFederate container stdout
+  to `ping-logs-pingfederate`; the Privilege gateway's `cyonproxy.log` (local) or the SIEM index `ping-siem-events-v2` and the console Activity Logs (hosted); the backend MCP server's stdout.
+- **Settings** (both empty by default, in `.env.example` and passed through `docker-compose.yml`): `RUN_OBS_ES_URL` (a loopback Elasticsearch origin; inside the container loopback is the
+  container, so use a forwarder in the lab's network namespace) and `RUN_OBS_ES_READ_APIKEY` (a read-only key; never returned, logged or put in an error). The compose file does **not** mount the
+  Docker socket; the Docker reader (`RUN_OBS_DOCKER=1`) is for a throwaway ad-hoc override only. The reader's call goes through the netguard, which lets loopback through and nothing else.
+
 ## Safety
 
 - Loopback-only host bind (0.0.0.0 inside the container only because Docker routes via eth0;

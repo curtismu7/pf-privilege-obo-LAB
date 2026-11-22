@@ -9,6 +9,9 @@ import * as privilege from "./privilege.js";
 import { installNetguard, netguardSelfTest, setAllowedOrigins } from "./netguard.js";
 import { readFileSettings, doorConfig, createRealDoor } from "./gatewayReal.js";
 import { oboConfig, publicView, runReal, NOT_CONFIGURED } from "./oboReal.js";
+import { createRunLog, observeMockRun, observeRealRun, buildRunRecord } from "./runLog.js";
+import { RunObsError } from "./runObservability.js";
+import { readersFromEnv } from "./runObservabilityReaders.js";
 
 // Real mode = the shared gateway hop: an agent key from the shared settings file calling a live Privilege door.
 const PFO_REFUSAL = "Real is not configured: set PFO_GW_URL, PFO_GW_APPS and at least one PFO_GW_KEY_<NAME> in the shared settings file (~/Development/.env, or STANDALONE_ENV). Mock keeps working.";
@@ -55,10 +58,13 @@ function tokenSummary(token) {
   };
 }
 
-export function buildServer({ netguard } = {}) {
+// runLog / runLogWrite: the run's decision log and where its one-line-per-decision output goes (stdout by default). runObsReaders: the log
+// readers for a Real record (readersFromEnv() by default: Elasticsearch with a read-only key, nothing else unless opted in).
+export function buildServer({ netguard, runLog: injectedRunLog, runLogWrite, runObsReaders } = {}) {
   // Rule 1: zero real outbound by default. The mock issuer/gateway/backend are
   // in-process, so nothing here has a reason to leave the machine.
   installNetguard();
+  const runLog = injectedRunLog ?? createRunLog({ write: runLogWrite });
   const app = express();
   app.disable("x-powered-by");
   app.use(express.json({ limit: "64kb" }));
@@ -156,6 +162,7 @@ export function buildServer({ netguard } = {}) {
       run.id = nextRunId();
       state.realRuns.push(run);
       if (state.realRuns.length > 20) state.realRuns.shift();
+      runLog.recordRun({ source: "real", runId: run.id, startedAt: run.startedAt, events: observeRealRun({ run }) });
       res.json(run);
     } catch (err) {
       res.status(err.status || 500).json({ error: String(err.message || "run failed").slice(0, 400) });
@@ -226,6 +233,7 @@ export function buildServer({ netguard } = {}) {
     let subjectToken = req.body && req.body.subjectToken;
     const shape = scenario === "autonomous" ? "autonomous" : "obo";
     let effToken = token;
+    let garbageBearer = false;
 
     if (!effToken) {
       // Mint from the scenario so the UI can drive everything with one call.
@@ -243,6 +251,7 @@ export function buildServer({ netguard } = {}) {
         // A garbage bearer never reaches the grant: refused at sign-in.
         effToken = "garbage.token.value";
         subjectToken = null;
+        garbageBearer = true;
       } else {
         // "cedar-actsub": the identity trusts two agents (any-of required claims); the token comes from the second
         // one, so it passes the identity and the grant and only the act.sub Cedar policy refuses it.
@@ -286,6 +295,11 @@ export function buildServer({ netguard } = {}) {
     };
     state.runs.push(run);
     if (state.runs.length > 200) state.runs.shift();
+    // Rule 27: the lab minted a person token and an access token only when it built them itself (not a caller-supplied or garbage bearer).
+    const minted = !req.body?.token && !garbageBearer;
+    const claims = pf.decodePayload(effToken);
+    const who = { sub: claims?.sub, actor: claims?.act?.sub };
+    runLog.recordRun({ source: "mock", runId: run.id, startedAt: run.at, events: observeMockRun({ run, who, minted }) });
     res.json(run);
   });
 
@@ -295,11 +309,26 @@ export function buildServer({ netguard } = {}) {
     res.json({ claims: pf.decodePayload(token), verified: pf.verify(token).ok, label: "mock" });
   });
 
+  // Run observability (rule 27): what each layer left behind for the LATEST run in the CURRENT mode. Mock rows are simulated (computed by the
+  // mock on that run); Real rows are the replies the lab received plus whatever the Elasticsearch reader found.
+  app.get("/api/run-observability", async (_req, res) => {
+    res.set("Cache-Control", "no-store");
+    const run = runLog.forSource(state.source);
+    if (!run) return res.status(204).end(); // no run yet in this mode: not an error, the page shows its empty state
+    try {
+      res.json(await buildRunRecord({ run, readers: runObsReaders ?? readersFromEnv() }));
+    } catch (e) {
+      if (e instanceof RunObsError) return res.status(e.status).json({ error: e.code, message: e.message });
+      res.status(500).json({ error: "run_observability_failed", message: "The run record could not be built." });
+    }
+  });
+
   app.get("/api/runs", (req, res) => res.json({ runs: state.runs, realRuns: state.realRuns }));
 
   app.post("/api/reset", (req, res) => {
     state.runs = [];
     state.realRuns = [];
+    runLog.reset();
     res.json({ ok: true });
   });
 
