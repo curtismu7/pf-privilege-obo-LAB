@@ -108,6 +108,55 @@ describe("Real OBO page", () => {
   });
 });
 
+describe("Real OBO page: state handling", () => {
+  it("starts on the first configured shape (a lab with only the gateway door)", async () => {
+    const calls = mockFetch({ cfg: { ...CONFIG, shapes: { agent: false, gateway: true } } });
+    render(<RealObo />);
+    await waitFor(() => expect(screen.getByRole("button", { name: /Gateway OBO/ }).getAttribute("aria-pressed")).toBe("true"));
+    fireEvent.click(screen.getByTestId("real-obo-run"));
+    await waitFor(() => expect(calls.some((c) => c.path === "/api/real/obo/run")).toBe(true));
+    expect(calls.find((c) => c.path === "/api/real/obo/run").body.shape).toBe("gateway");
+  });
+
+  it("switching shape clears the previous run, so a result is never shown under the wrong shape", async () => {
+    mockFetch();
+    render(<RealObo />);
+    await waitFor(() => expect(screen.getByTestId("real-obo-run")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("real-obo-run"));
+    await waitFor(() => expect(screen.getByTestId("real-obo-frames")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: /Gateway OBO/ }));
+    expect(screen.queryByTestId("real-obo-frames")).toBeNull();
+  });
+
+  it("a request that cannot reach the lab shows an error and the button works again", async () => {
+    mockFetch();
+    const ok = global.fetch;
+    global.fetch = (path, opts) => (path === "/api/real/obo/run" ? Promise.reject(new Error("offline")) : ok(path, opts));
+    render(<RealObo />);
+    await waitFor(() => expect(screen.getByTestId("real-obo-run")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("real-obo-run"));
+    await waitFor(() => expect(screen.getByTestId("real-obo-error").textContent).toMatch(/offline/));
+    expect(screen.getByTestId("real-obo-run").disabled).toBe(false);
+    expect(screen.getByTestId("real-obo-run").textContent).toBe("Run live");
+  });
+
+  it("says a failed run 'finished with a failure', and 'stopped early' only when a step was skipped", async () => {
+    const failedNoSkip = { ...RUN, ok: false, frames: RUN.frames.slice(0, 3).map((f, i) => (i === 2 ? { ...f, state: "refused" } : f)) };
+    mockFetch({ run: failedNoSkip });
+    render(<RealObo />);
+    await waitFor(() => expect(screen.getByTestId("real-obo-run")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("real-obo-run"));
+    await waitFor(() => expect(screen.getByTestId("real-obo-frames").textContent).toMatch(/finished with a failure/));
+    cleanup();
+    const skipped = { ...RUN, ok: false, frames: [...RUN.frames.slice(0, 2), { ...RUN.frames[2], state: "error" }, { ...RUN.frames[3], state: "skipped" }] };
+    mockFetch({ run: skipped });
+    render(<RealObo />);
+    await waitFor(() => expect(screen.getByTestId("real-obo-run")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("real-obo-run"));
+    await waitFor(() => expect(screen.getByTestId("real-obo-frames").textContent).toMatch(/stopped early/));
+  });
+});
+
 describe("Real mode in the app", () => {
   it("shows the real run instead of the mock scenarios and says it is live", async () => {
     mockFetch({ source: "real" });

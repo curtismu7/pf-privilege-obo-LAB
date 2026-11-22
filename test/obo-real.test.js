@@ -1,5 +1,5 @@
 // Real OBO run, against an in-process stand-in for PingFederate and the two doors (loopback only: nothing leaves the machine).
-import { test, before, after } from "node:test";
+import { test, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
 import { createHash } from "node:crypto";
@@ -17,6 +17,9 @@ const jwt = (payload) => `${b64({ alg: "none" })}.${b64(payload)}.sig`;
 const basicOf = (id, s) => `Basic ${Buffer.from(`${id}:${s}`).toString("base64")}`;
 
 let stub; let base; const minted = new Set(); let lastExchange = null; let challenge = null;
+const hits = {}; let lastSignInAuth = null;
+const knob = { exchangeEcho: false, exchangeFail: false, doorMode: "ok", delayMs: 0, refusalEcho: false };
+const resetKnobs = () => { Object.assign(knob, { exchangeEcho: false, exchangeFail: false, doorMode: "ok", delayMs: 0, refusalEcho: false }); };
 
 function reply(res, status, body, headers = {}) {
   res.writeHead(status, { "content-type": "application/json", ...headers });
@@ -28,6 +31,8 @@ before(async () => {
   stub = http.createServer(async (req, res) => {
     const url = new URL(req.url, "http://x");
     const body = await readBody(req);
+    hits[url.pathname] = (hits[url.pathname] || 0) + 1;
+    if (knob.delayMs && url.pathname === "/as/token.oauth2") await new Promise((r) => setTimeout(r, knob.delayMs));
     if (url.pathname === "/as/authorization.oauth2") { challenge = url.searchParams.get("code_challenge"); return reply(res, 200, { id: "flow-abc-123", status: "USERNAME_PASSWORD_REQUIRED" }, { "set-cookie": "ST=1; Path=/" }); }
     if (url.pathname === "/pf-ws/authn/flows/flow-abc-123") {
       if (req.headers["x-xsrf-header"] !== "PingFederate") return reply(res, 400, { code: "INVALID_REQUEST" });
@@ -38,12 +43,16 @@ before(async () => {
     if (url.pathname === "/as/token.oauth2") {
       const p = new URLSearchParams(body);
       if (p.get("grant_type") === "authorization_code") {
-        if (req.headers.authorization !== basicOf("signin-client", SIGNIN_SECRET)) return reply(res, 401, { error: "invalid_client" });
+        lastSignInAuth = req.headers.authorization ? "basic" : p.get("client_secret") ? "post" : "none";
+        if (req.headers.authorization && req.headers.authorization !== basicOf("signin-client", SIGNIN_SECRET)) return reply(res, 401, { error: "invalid_client" });
+        if (p.get("client_secret") && p.get("client_secret") !== SIGNIN_SECRET) return reply(res, 401, { error: "invalid_client" });
         if (createHash("sha256").update(p.get("code_verifier")).digest("base64url") !== challenge) return reply(res, 400, { error: "invalid_grant" });
         const now = Math.floor(Date.now() / 1000);
         return reply(res, 200, { id_token: jwt({ iss: base, sub: "stub-user", aud: "signin-client", iat: now, exp: now + 300 }) });
       }
       if (req.headers.authorization !== basicOf("agent-client", AGENT_SECRET)) return reply(res, 401, { error: "invalid_client" });
+      if (knob.exchangeEcho) return reply(res, 400, { error: "invalid_request", error_description: `the secret was ${AGENT_SECRET} and the password ${PASSWORD}` });
+      if (knob.exchangeFail) return reply(res, 400, { error: "invalid_target", error_description: "audience value is invalid" });
       lastExchange = Object.fromEntries(p);
       const target = p.get("audience") || p.get("resource");
       const now = Math.floor(Date.now() / 1000);
@@ -51,10 +60,23 @@ before(async () => {
       minted.add(t);
       return reply(res, 200, { access_token: t, token_type: "Bearer" });
     }
+    if (url.pathname === "/redirect/mcp") return reply(res, 302, "", { location: `${base}/agent/mcp` });
     if (url.pathname === "/agent/mcp" || url.pathname === "/gw/mcp") {
       const bearer = String(req.headers.authorization || "").replace(/^Bearer /, "");
-      if (!minted.has(bearer)) return reply(res, 401, { error: "unauthorized", error_description: "Bearer token required" }, { "www-authenticate": `Bearer realm="stub", resource_metadata="${base}/.well-known/oauth-protected-resource${url.pathname}"` });
+      if (knob.doorMode === "refuse-real" && minted.has(bearer)) return reply(res, 403, { error: "forbidden" }, { "www-authenticate": 'Bearer realm="stub"' });
+      if (knob.doorMode === "500" && minted.has(bearer)) return reply(res, 500, { error: "boom" });
+      if (knob.doorMode === "rpc-error" && minted.has(bearer)) return reply(res, 200, { jsonrpc: "2.0", id: 1, error: { code: -32000, message: "tool listing failed" } });
+      if (knob.doorMode === "html" && minted.has(bearer)) return reply(res, 200, "<html>login</html>", { "content-type": "text/html" });
+      if (!minted.has(bearer)) return reply(res, 401, { error: "unauthorized", error_description: knob.refusalEcho ? `Bearer token required (saw ${PASSWORD})` : "Bearer token required" }, { "www-authenticate": `Bearer realm="stub", resource_metadata="${base}/.well-known/oauth-protected-resource${url.pathname}"` });
       const rpc = JSON.parse(body);
+      if (knob.doorMode === "sse") {
+        const msg = rpc.method === "tools/list" ? { jsonrpc: "2.0", id: rpc.id, result: { tools: [{ name: "OnlyTool" }] } } : { jsonrpc: "2.0", id: rpc.id, result: { content: [{ type: "text", text: JSON.stringify({ verifiedBy: "stub-backend", subject: "stub-user", audience: "backend-aud", actor: { sub: "gateway-client" } }) }] } };
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        res.write(`data: ${JSON.stringify({ jsonrpc: "2.0", method: "notifications/message", params: { level: "info" } })}\n\n`);
+        // The notification is flushed alone; the reply follows in a later chunk. Ending the read at the first message would lose it.
+        return setTimeout(() => res.end(`data: ${JSON.stringify(msg)}\n\n`), 80);
+      }
+      if (knob.doorMode === "whoami-true" && rpc.method === "tools/call") return reply(res, 200, { jsonrpc: "2.0", id: rpc.id, result: { content: [{ type: "text", text: "true" }] } });
       if (rpc.method === "tools/list") return reply(res, 200, { jsonrpc: "2.0", id: rpc.id, result: { tools: url.pathname === "/agent/mcp" ? [{ name: "ListTool" }, { name: "SearchTool" }, { name: "CountTool" }] : [{ name: "whoami" }] } });
       if (rpc.method === "tools/call") {
         const seen = { verifiedBy: "stub-backend", issuer: base, subject: "stub-user", audience: "backend-aud", clientId: "agent-client", scope: "mcp whoami:read", actor: { sub: "gateway-client", act: { sub: "agent-client" } }, claims: { secret_looking: "must-not-be-copied" } };
@@ -67,6 +89,7 @@ before(async () => {
   base = `http://127.0.0.1:${stub.address().port}`;
 });
 after(() => stub.close());
+beforeEach(() => resetKnobs());
 
 const settings = () => `PFO_USER_NAME=stub-user
 PFO_USER_PASSWORD=${PASSWORD}
@@ -178,8 +201,98 @@ test("tokens are shown in full: the frame carries the raw token and the door cal
   assert.equal(run.frames[0].token.claims.sub, "stub-user");
 });
 
-test("the made-up token is not a secret and is not any minted token", () => {
-  assert.ok(!minted.has(MADE_UP_TOKEN));
+test("the password and the client secret echoed back by PingFederate never reach the run", async () => {
+  knob.exchangeEcho = true;
+  const run = await runReal(cfg(), { shape: "agent" });
+  assert.equal(run.frames[1].state, "error");
+  assert.match(run.frames[1].summary, /<redacted>/);
+  assert.deepEqual(run.frames.slice(2).map((f) => f.state), ["skipped"]);
+  noSecrets(run);
+});
+
+test("a secret echoed by the door's own refusal body is redacted too (the final scrub, not only the per-field one)", async () => {
+  knob.refusalEcho = true;
+  const run = await runReal(cfg(), { shape: "agent", refusal: true });
+  const refusal = run.frames.at(-1);
+  assert.equal(refusal.state, "refused");
+  assert.match(refusal.response.error.error_description, /<redacted>/);
+  noSecrets(run);
+});
+
+test("a refused exchange stops the run with PingFederate's reason and skips the door", async () => {
+  knob.exchangeFail = true;
+  const run = await runReal(cfg(), { shape: "gateway", refusal: true });
+  assert.equal(run.ok, false);
+  assert.deepEqual(run.frames.map((f) => f.state), ["ok", "error", "skipped", "skipped", "skipped"]);
+  assert.match(run.frames[1].summary, /audience value is invalid/);
+});
+
+test("a door that refuses the real token is shown refused, stops the run and the backend is not asked", async () => {
+  knob.doorMode = "refuse-real";
+  const before = hits["/gw/mcp"] || 0;
+  const run = await runReal(cfg(), { shape: "gateway", refusal: true });
+  assert.equal(run.frames[2].state, "refused");
+  assert.equal(run.frames[2].response.status, 403);
+  assert.deepEqual(run.frames.slice(3).map((f) => f.state), ["skipped", "skipped"]);
+  assert.equal(run.ok, false);
+  assert.equal((hits["/gw/mcp"] || 0) - before, 1, "only the one refused tools/list reached the door");
+});
+
+test("a 500 from the door is an error, not an authorization refusal", async () => {
+  knob.doorMode = "500";
+  const run = await runReal(cfg(), { shape: "agent" });
+  assert.equal(run.frames[2].state, "error");
+  assert.match(run.frames[2].summary, /not an authorization decision/);
+});
+
+test("HTTP 200 that is not a tools list is not 'accepted' (JSON-RPC error, HTML page)", async () => {
+  for (const mode of ["rpc-error", "html"]) {
+    knob.doorMode = mode;
+    const run = await runReal(cfg(), { shape: "agent" });
+    assert.equal(run.frames[2].state, "error", mode);
+    assert.match(run.frames[2].summary, /nothing shows the token was accepted/, mode);
+    assert.equal(run.frames[2].inferred, undefined, mode);
+  }
+});
+
+test("an SSE reply with a notification first still yields the reply with the matching id", async () => {
+  knob.doorMode = "sse";
+  const run = await runReal(cfg(), { shape: "gateway" });
+  assert.equal(run.ok, true);
+  assert.deepEqual(run.frames[2].response.tools, ["OnlyTool"]);
+  assert.equal(run.frames[3].backend.subject, "stub-user");
+});
+
+test("a whoami reply that is not the claims object is an error", async () => {
+  knob.doorMode = "whoami-true";
+  const run = await runReal(cfg(), { shape: "gateway" });
+  assert.equal(run.frames[3].state, "error");
+});
+
+test("sign-in client authentication: basic, post and none each reach the token endpoint as configured", async () => {
+  await runReal(cfg(), { shape: "agent" });
+  assert.equal(lastSignInAuth, "basic");
+  await runReal(oboConfig(settings() + "PFO_OBO_SIGNIN_AUTH=post\n"), { shape: "agent" });
+  assert.equal(lastSignInAuth, "post");
+  const pub = oboConfig(settings().replace(/PFO_OBO_SIGNIN_SECRET=.*\n/, ""));
+  assert.equal(pub.signin.auth, "none");
+  await runReal(pub, { shape: "agent" });
+  assert.equal(lastSignInAuth, "none");
+});
+
+test("a redirect is never followed: the target is not requested and the frame says so", async () => {
+  const c = oboConfig(settings().replace("/agent/mcp", "/redirect/mcp"));
+  const before = hits["/agent/mcp"] || 0;
+  const run = await runReal(c, { shape: "agent" });
+  assert.equal(run.frames[2].state, "error");
+  assert.equal(run.frames[2].response.status, 302);
+  assert.equal((hits["/agent/mcp"] || 0) - before, 0);
+});
+
+test("settings: a URL with credentials is refused; a quote ends a value only as a matching pair; export lines work", () => {
+  assert.match(oboConfig(settings().replace(base, base.replace("http://", "http://user:pw@"))).problem, /credentials/);
+  const s = parseSettings("PFO_A=\"quoted\"\nPFO_B='single'\nPFO_C=ends-in-quote'\nexport PFO_D=exported\nPFO_E=a b\n");
+  assert.deepEqual(s, { PFO_A: "quoted", PFO_B: "single", PFO_C: "ends-in-quote'", PFO_D: "exported", PFO_E: "a b" });
 });
 
 // ---- through the API ----------------------------------------------------------------------------------------
@@ -233,5 +346,30 @@ test("API: configured Real switches, runs both shapes, lists the runs and Reset 
     noSecrets(a.body);
     noSecrets(g.body);
     assert.equal((await j("/api/mode", { source: "mock" })).body.source, "mock");
+  });
+});
+
+test("API: a second run while one is in flight is refused 409, and the lock is released afterwards", async () => {
+  await withApi(settings(), async (j) => {
+    assert.equal((await j("/api/mode", { source: "real" })).status, 200);
+    knob.delayMs = 300;
+    const [a, b] = await Promise.all([j("/api/real/obo/run", { shape: "agent" }), j("/api/real/obo/run", { shape: "agent" })]);
+    assert.deepEqual([a.status, b.status].sort(), [200, 409]);
+    knob.delayMs = 0;
+    assert.equal((await j("/api/real/obo/run", { shape: "agent" })).status, 200);
+  });
+});
+
+test("API: switching to Real lets exactly the configured hosts through the netguard; Mock takes them away again", async () => {
+  const env = settings().split(base).join("https://pf.invalid").replace("https://pf.invalid/agent/mcp", "https://gw.invalid/agent/mcp").replace("https://pf.invalid/gw/mcp", "https://gw.invalid/gw/mcp");
+  await withApi(env, async (j) => {
+    const reach = (host) => fetch(`https://${host}/`, { signal: AbortSignal.timeout(4000) }).then(() => "reached", (e) => (/network blocked/.test(e.message) ? "blocked" : "allowed"));
+    assert.equal(await reach("pf.invalid"), "blocked");
+    assert.equal((await j("/api/mode", { source: "real" })).status, 200);
+    assert.equal(await reach("pf.invalid"), "allowed", "the issuer host may be resolved and dialled");
+    assert.equal(await reach("gw.invalid"), "allowed", "the door host too");
+    assert.equal(await reach("elsewhere.invalid"), "blocked", "any other host is still refused");
+    assert.equal((await j("/api/mode", { source: "mock" })).status, 200);
+    assert.equal(await reach("pf.invalid"), "blocked");
   });
 });

@@ -17,6 +17,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { sseMessages } from "./gatewayReal.js";
 
 const TIMEOUT_MS = 15_000;
+const RUN_DEADLINE_MS = 60_000;
 const MAX_BYTES = 256 * 1024;
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "[::1]"]);
 const ID = /^[A-Za-z0-9._:@-]{1,128}$/;
@@ -31,8 +32,10 @@ export const NOT_CONFIGURED = "Real is not configured. In this lab's .env set PF
 export function parseSettings(text, env = {}) {
   const out = {};
   for (const line of String(text ?? "").split("\n")) {
-    const m = line.match(/^\s*(PFO_[A-Z0-9_]+)\s*=\s*(.*?)\s*$/);
-    if (m) out[m[1]] = m[2].replace(/^["']|["']$/g, "");
+    const m = line.match(/^\s*(?:export\s+)?(PFO_[A-Z0-9_]+)\s*=\s*(.*?)\s*$/);
+    if (!m) continue;
+    const quoted = m[2].match(/^(["'])([\s\S]*)\1$/); // strip a matching pair only: a password may end in a quote
+    out[m[1]] = quoted ? quoted[2] : m[2];
   }
   for (const [k, v] of Object.entries(env)) if (k.startsWith("PFO_") && typeof v === "string" && v) out[k] = v;
   return out;
@@ -121,11 +124,12 @@ function scrubber(cfg, extra = []) {
   return (text) => { let out = String(text ?? ""); for (const sec of secrets) out = out.split(sec).join("<redacted>"); return out; };
 }
 
-async function http(url, { method = "GET", headers = {}, body, signal } = {}) {
+async function http(url, { method = "GET", headers = {}, body, signal, wantId } = {}) {
   const res = await fetch(url, { method, headers, body, redirect: "manual", signal: signal || AbortSignal.timeout(TIMEOUT_MS) });
   if (res.status >= 300 && res.status < 400) { res.body?.cancel().catch(() => {}); return { status: res.status, headers: res.headers, text: "", redirected: true }; }
   const reader = res.body?.getReader();
   let text = "";
+  let truncated = false;
   if (reader) {
     const dec = new TextDecoder();
     let bytes = 0;
@@ -135,12 +139,13 @@ async function http(url, { method = "GET", headers = {}, body, signal } = {}) {
         if (done) break;
         bytes += value.length;
         text += dec.decode(value, { stream: true });
-        if (bytes > MAX_BYTES) break;
-        if (/text\/event-stream/i.test(res.headers.get("content-type") || "") && sseMessages(text).length) break;
+        if (bytes > MAX_BYTES) { truncated = true; break; }
+        // A stream that stays open is not waited on, but only the reply we asked for ends the read (not a notification before it).
+        if (/text\/event-stream/i.test(res.headers.get("content-type") || "") && sseMessages(text).some((m) => m && (wantId === undefined || m.id === wantId))) break;
       }
     } finally { reader.cancel().catch(() => {}); }
   }
-  return { status: res.status, headers: res.headers, text };
+  return { status: res.status, headers: res.headers, text, truncated };
 }
 
 const form = (o) => new URLSearchParams(o).toString();
@@ -198,11 +203,12 @@ async function rpc(url, token, method, params) {
     method: "POST",
     headers: { "content-type": "application/json", accept: "application/json, text/event-stream", authorization: `Bearer ${token}` },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+    wantId: 1,
   });
   let json = null;
   if (/text\/event-stream/i.test(r.headers.get("content-type") || "")) json = sseMessages(r.text).find((m) => m && m.id === 1) ?? null;
   else { try { json = JSON.parse(r.text); } catch { json = null; } }
-  return { status: r.status, headers: r.headers, text: r.text, json };
+  return { status: r.status, headers: r.headers, text: r.text, json, truncated: r.truncated };
 }
 
 function challengeOf(headers) {
@@ -239,15 +245,18 @@ export async function runReal(cfg, { shape, refusal = false } = {}) {
   const frames = [];
   const started = Date.now();
   let failed = false;
+  const deadline = started + RUN_DEADLINE_MS;
 
   const add = (f) => { frames.push({ n: frames.length + 1, ...f }); };
   const timed = async (id, title, fn) => {
+    if (!failed && Date.now() > deadline) { failed = true; add({ id, title, state: "error", summary: `The run took longer than ${RUN_DEADLINE_MS / 1000} s, so it was stopped.` }); return null; }
     if (failed) { add({ id, title, state: "skipped", summary: "Skipped: an earlier step did not complete." }); return null; }
     const t0 = Date.now();
     try {
       const f = await fn();
       add({ id, title, ms: Date.now() - t0, ...f });
-      if (f.state === "error") failed = true;
+      // A refused call stops the run too, except the made-up-token control, which is meant to be refused.
+      if (f.state === "error" || (f.state === "refused" && id !== "refused")) failed = true;
       return f;
     } catch (err) {
       failed = true;
@@ -290,9 +299,16 @@ export async function runReal(cfg, { shape, refusal = false } = {}) {
 
   await timed("door", shape === "agent" ? "Call the door with that token" : "Call the gateway door with that token", async () => {
     const r = await rpc(door.url, access, "tools/list", {});
-    const tools = Array.isArray(r.json?.result?.tools) ? r.json.result.tools.slice(0, 40).map((t) => String(t?.name ?? "").slice(0, 120)) : [];
     const request = { method: "POST", url: new URL(door.url).host + new URL(door.url).pathname, params: [{ name: "Authorization", value: `Bearer ${access}` }, { name: "jsonrpc method", value: "tools/list" }] };
-    if (r.status !== 200) return { state: "refused", summary: `The door answered ${r.status}.`, request, response: { status: r.status, challenge: challengeOf(r.headers) }, spec: SPEC.refused };
+    const challenge = { challenge: challengeOf(r.headers) };
+    if (r.status === 401 || r.status === 403) return { state: "refused", summary: `The door refused the token: HTTP ${r.status}.`, request, response: { status: r.status, ...challenge }, spec: SPEC.refused };
+    if (r.status !== 200) return { state: "error", summary: `The door answered HTTP ${r.status}, which is not an authorization decision.`, request, response: { status: r.status }, spec: [] };
+    const list = r.json?.result?.tools;
+    if (!Array.isArray(list)) {
+      const why = r.truncated ? "the reply was larger than the size cap" : r.json?.error ? `a JSON-RPC error: ${scrub(String(r.json.error.message ?? "").slice(0, 120))}` : "the reply was not a tools list";
+      return { state: "error", summary: `HTTP 200, but ${why}, so nothing shows the token was accepted.`, request, response: { status: 200 }, spec: [] };
+    }
+    const tools = list.slice(0, 40).map((t) => String(t?.name ?? "").slice(0, 120));
     return {
       state: "ok", summary: `Accepted: HTTP 200 with ${tools.length} tool${tools.length === 1 ? "" : "s"}.`, request,
       response: { status: 200, tools },
@@ -305,11 +321,12 @@ export async function runReal(cfg, { shape, refusal = false } = {}) {
     await timed("whoami", `Ask the backend who it saw (${door.tool})`, async () => {
       const r = await rpc(door.url, access, "tools/call", { name: door.tool, arguments: {} });
       const request = { method: "POST", url: new URL(door.url).host + new URL(door.url).pathname, params: [{ name: "Authorization", value: `Bearer ${access}` }, { name: "jsonrpc method", value: "tools/call" }, { name: "tool", value: door.tool }] };
-      if (r.status !== 200) return { state: "refused", summary: `The gateway answered ${r.status}.`, request, response: { status: r.status, body: scrub(r.text).slice(0, 200) }, spec: [] };
+      if (r.status === 401 || r.status === 403) return { state: "refused", summary: `The gateway refused the call: HTTP ${r.status}.`, request, response: { status: r.status, challenge: challengeOf(r.headers) }, spec: SPEC.refused };
+      if (r.status !== 200) return { state: "error", summary: `The gateway answered HTTP ${r.status}, which is not an authorization decision.`, request, response: { status: r.status, body: scrub(r.text).slice(0, 200) }, spec: [] };
       const text = (r.json?.result?.content || []).map((c) => (c?.type === "text" ? c.text : "")).join("\n");
       let seen = null;
       try { seen = JSON.parse(text); } catch { seen = null; }
-      if (!seen) return { state: "error", summary: "The tool replied but not with the claims the backend saw.", request, response: { status: 200 }, spec: [] };
+      if (!seen || typeof seen !== "object" || Array.isArray(seen) || typeof seen.subject !== "string") return { state: "error", summary: "The tool replied but not with the claims the backend saw.", request, response: { status: 200 }, spec: [] };
       const backend = { verifiedBy: seen.verifiedBy ?? null, issuer: seen.issuer ?? null, subject: seen.subject ?? null, audience: seen.audience ?? null, clientId: seen.clientId ?? null, scope: seen.scope ?? null, actor: seen.actor ?? null };
       return { state: "ok", summary: `The backend verified the token itself. Subject ${backend.subject}, audience ${backend.audience}, actor ${JSON.stringify(backend.actor)}.`, request, response: { status: 200 }, backend, spec: SPEC.actor };
     });
@@ -332,5 +349,7 @@ export async function runReal(cfg, { shape, refusal = false } = {}) {
   }
 
   const ok = frames.every((f) => f.state === "ok" || (f.id === "refused" && f.state === "refused"));
-  return { shape, at: new Date().toISOString(), ok, ms: Date.now() - started, frames, user: cfg.user.name };
+  const run = { shape, at: new Date().toISOString(), ok, ms: Date.now() - started, frames, user: cfg.user.name };
+  // Defence in depth: whatever an upstream echoed, no secret survives in the serialized run.
+  return JSON.parse(scrub(JSON.stringify(run)));
 }

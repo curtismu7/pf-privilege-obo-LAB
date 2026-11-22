@@ -150,7 +150,6 @@ export function buildServer({ netguard } = {}) {
     if (Object.keys(body).some((k) => !["shape", "refusal"].includes(k))) return res.status(400).json({ error: "the only accepted body fields are { shape, refusal }" });
     if (state.realBusy) return res.status(409).json({ error: "a run is already in progress" });
     const cfg = oboConfigNow();
-    if (cfg.ok) setAllowedOrigins(cfg.origins);
     state.realBusy = true;
     try {
       const run = await runReal(cfg, { shape: body.shape, refusal: body.refusal === true });

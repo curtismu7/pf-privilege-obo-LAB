@@ -56,11 +56,11 @@ Mock / Real toggle in the header.
     the token goes to the Privilege door, which lists tools. Optionally a made-up token is refused.
   - **Gateway OBO (Auth Mode OBO):** the same, then the gateway makes its own exchange for the backend, and a tool on the
     backend reports the claims it received (subject, audience, the nested `act` chain).
-  - Real reaches only the PingFederate and gateway hosts named in `.env` (the netguard allows exactly those).
+  - Real reaches only the hosts named in the settings (the PingFederate issuer and the door hosts; the netguard allows exactly those, and Mock takes them away again).
     Tokens are shown in full (this is a demo; the family shows tokens raw) next to their decoded claims. Client secrets
     and the person's password are write-only: never returned, shown or logged. What Privilege checked is not reported as if the gateway said it: a real gateway returns no
     per-check detail, so the door frame says accepted or refused and labels the checks inferred.
-  - Docker: `docker compose up --build -d` reads `.env` (optional); the publish stays `127.0.0.1` only.
+  - Docker: `docker compose up --build -d` reads `.env` through compose's `env_file` (optional; needs Compose 2.24 or later). Compose treats `$` and ` #` in values specially, so single-quote a password or secret that contains them. The publish stays `127.0.0.1` only.
 - The video build lives in `video/` (script first, then a sample, then the live take).
 
 ## Safety

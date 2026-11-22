@@ -4,7 +4,8 @@ import Json from "./components/JsonPane.jsx";
 import { useApi, postJson } from "./api.js";
 
 // Real mode (rule 19): one live on-behalf-of run, shown as numbered frames. Every frame opens a pop-out with what was
-// sent, what came back, the decoded token (claims only: the token itself never reaches this page) and the spec notes.
+// sent, what came back, the token in full beside its decoded claims (a demo shows tokens raw; client secrets and the
+// password never reach this page) and the spec notes.
 
 const SHAPES = [
   { id: "agent", label: "Agent-side (Pass Agent Token)", blurb: "The agent trades the person's ID token for an access token and calls the door. Privilege checks the token." },
@@ -69,7 +70,7 @@ function FrameDetail({ frame }) {
 
 export default function RealObo() {
   const view = useApi("/api/real/obo");
-  const [shape, setShape] = useState("agent");
+  const [picked, setPicked] = useState(null);
   const [refusal, setRefusal] = useState(true);
   const [busy, setBusy] = useState(false);
   const [run, setRun] = useState(null);
@@ -78,14 +79,21 @@ export default function RealObo() {
 
   const cfg = view.data;
   const available = (id) => Boolean(cfg?.shapes?.[id]);
+  // The default is the first shape that is configured, so a lab with only the gateway door starts on it.
+  const shape = picked ?? (available("agent") ? "agent" : available("gateway") ? "gateway" : "agent");
+  const choose = (id) => { setPicked(id); setRun(null); setError(null); setOpen(null); };
 
   const start = async () => {
     setBusy(true); setError(null); setOpen(null);
-    const r = await postJson("/api/real/obo/run", { shape, refusal });
-    setBusy(false);
-    if (r.status === 200) setRun(r.body);
-    else { setRun(null); setError(r.body?.error || `HTTP ${r.status}`); }
+    try {
+      const r = await postJson("/api/real/obo/run", { shape, refusal });
+      if (r.status === 200) { setRun(r.body); setError(null); }
+      else { setRun(null); setError(r.body?.error || `HTTP ${r.status}`); }
+    } catch (err) {
+      setRun(null); setError(`Could not reach the lab: ${String(err?.message || err).slice(0, 120)}`);
+    } finally { setBusy(false); }
   };
+  const stoppedEarly = run?.frames?.some((f) => f.state === "skipped");
 
   const frame = run?.frames?.find((f) => f.n === open) || null;
   return (
@@ -99,7 +107,7 @@ export default function RealObo() {
       <div className="flow-controls" role="group" aria-label="Which shape">
         {SHAPES.map((s) => (
           <button key={s.id} type="button" className={shape === s.id ? "scenario-btn pressed" : "scenario-btn"} aria-pressed={shape === s.id} disabled={!available(s.id)}
-            title={available(s.id) ? s.blurb : "Not configured in this lab's .env"} onClick={() => setShape(s.id)}>
+            title={available(s.id) ? s.blurb : "Not configured in this lab's .env"} onClick={() => choose(s.id)}>
             {s.label}
           </button>
         ))}
@@ -114,7 +122,7 @@ export default function RealObo() {
       {error && <p className="run-result refused" role="alert" data-testid="real-obo-error">{error}</p>}
       {run && (
         <div data-testid="real-obo-frames">
-          <p className="hint">Run {run.ok ? "completed" : "stopped early"} in {run.ms} ms.</p>
+          <p className="hint">{run.ok ? "Run completed" : stoppedEarly ? "Run stopped early" : "Run finished with a failure"} in {run.ms} ms.</p>
           <ol className="real-frames">
             {run.frames.map((f) => (
               <li key={f.n}>
