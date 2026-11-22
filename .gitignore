@@ -1,3 +1,6 @@
 node_modules/
 dist/
 .env
+# Video build: local-only recordings and console screenshots (hostnames on screen)
+video/out/
+video/assets/
