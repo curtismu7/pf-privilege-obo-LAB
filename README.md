@@ -181,8 +181,8 @@ Real mode here is one live call through the PingOne Privilege gateway (the origi
 `PFO_GW_URL`) with an agent access key from the shared settings
 file (`~/Development/.env`, or the file `STANDALONE_ENV` names).
 
-**Privilege objects this lab uses:** the Agentic App `aggregate-limited` — the gateway's
-MCP aggregate with a tool filter — at client path `/aggregate-limited/mcp`, called with the
+**Privilege objects this lab uses:** the Agentic App `lab-agg-limited` — the gateway's
+MCP aggregate with a tool filter — at client path `/lab-agg-limited/mcp`, called with the
 agent access key `PFO_GW_KEY_LAB_AGENT` (write-only, never shown). **What runs in Real:** the
 **Privilege gateway check** (`POST /api/gateway-check`): one live `tools/list` through the
 Agentic App,
