@@ -6,13 +6,6 @@
   --obo-gradient: linear-gradient(90deg, #b3261e, #7a1410);
   --obo-ok-edge: #1a7f37;
   --obo-bad-edge: #d02020;
-  --accent: var(--accent);
-  --box-dark: var(--box-dark);
-  --control-border: var(--control-border);
-  --lane-agent: var(--lane-agent);
-  --lane-mcp: var(--lane-mcp);
-  --lane-privilege: var(--lane-privilege);
-  --text-muted: var(--text-muted);
   --obo-on-accent: #fff;
   --obo-on-dark: #fff;
 }
