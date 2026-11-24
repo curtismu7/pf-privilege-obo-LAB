@@ -210,6 +210,49 @@ TOTAL = 17   # numbered caption bubbles (Part 1: 9, Part 2: 8); the take counts 
 EXPECT = {"agent": ["ok", "ok", "ok", "refused"], "gateway": ["ok", "ok", "ok", "ok", "refused"]}
 SHAPE_BTN = {"agent": "[aria-label='Which shape'] button >> nth=0", "gateway": "[aria-label='Which shape'] button >> nth=1"}
 
+MASK_HOSTS = os.environ.get("MASK_HOSTS", "1") == "1"   # live takes show placeholder hosts, never the real ones (owner, 2026-11-24); MASK_HOSTS=0 to see the real ones
+MASK_JS = r"""
+(() => {
+  const CFG = __CFG__;
+  const rules = CFG.rules.map(([src, rep]) => [new RegExp(src, 'gi'), rep]);
+  const mask = (s) => { for (const [re, rep] of rules) s = s.replace(re, rep); return s; };
+  const text = (n) => { const m = mask(n.nodeValue); if (m !== n.nodeValue) n.nodeValue = m; };
+  const fix = (n) => {
+    if (n.nodeType === 3) return text(n);
+    if (n.nodeType !== 1) return;
+    const w = document.createTreeWalker(n, NodeFilter.SHOW_TEXT); let t; while ((t = w.nextNode())) text(t);
+    for (const el of [n, ...n.querySelectorAll('[title],[placeholder],[aria-label],[value]')]) for (const a of ['title', 'placeholder', 'aria-label', 'value']) {
+      const v = el.getAttribute(a); if (v) { const m = mask(v); if (m !== v) el.setAttribute(a, m); } }
+  };
+  const start = () => { fix(document.documentElement); document.title = mask(document.title);
+    new MutationObserver((ms) => { for (const m of ms) { if (m.type === 'characterData') fix(m.target); else m.addedNodes.forEach(fix); } })
+      .observe(document.documentElement, { subtree: true, childList: true, characterData: true }); };
+  if (document.documentElement) start(); else document.addEventListener('DOMContentLoaded', start);
+  window.__maskLeak = () => { const m = ((document.body && document.body.innerText) || '').match(new RegExp(CFG.leak, 'i')); return m ? m[0] : null; };
+})();
+"""
+
+def mask_config():
+    """Which host names must never show on screen, read at run time from this lab's own .env (never written into the repo): the PingFederate
+    host, the gateway door host, any other host the .env names, their parent domain, and in-cluster service names (they carry a namespace)."""
+    path = Path(os.environ.get("PFO_ENV_FILE") or (Path(__file__).resolve().parent.parent / ".env"))
+    env = {}
+    if path.exists():
+        for line in path.read_text().splitlines():
+            m = re.match(r"\s*([A-Za-z0-9_]+)\s*=\s*(.*)", line)
+            if m and not line.lstrip().startswith("#"): env[m.group(1)] = m.group(2).strip().strip("'\"")
+    named = {}   # host -> placeholder (the specific hosts first)
+    for k, v in env.items():
+        for h in re.findall(r"https?://([A-Za-z0-9.-]+)", v):
+            ph = "pingfederate.example" if re.search(r"ISSUER|TOKEN_URL|SIGNIN|REDIRECT", k) else ("gateway.example" if "DOOR" in k else "host.example")
+            named.setdefault(h.lower(), ph)
+    rules = [[re.escape(h), ph] for h, ph in sorted(named.items(), key=lambda x: -len(x[0]))]
+    domains = {".".join(h.split(".")[-2:]) for h in named if h.count(".") >= 2}
+    rules += [[r"(?:[A-Za-z0-9-]+\.)*" + re.escape(d), "host.example"] for d in sorted(domains)]
+    rules.append([r"(?:[A-Za-z0-9-]+\.)+svc\.cluster\.local", "backend.example"])
+    leak = "|".join([re.escape(h) for h in named] + [re.escape(d) for d in domains] + [r"svc\.cluster\.local"])
+    return {"rules": rules, "leak": leak, "hosts": len(named)}
+
 def hold(text, extra=0.0):
     return max(5.0, len(text.split()) * 0.30 + 2.2) + extra
 
@@ -258,6 +301,9 @@ def main():
         ctx.add_init_script("window.__cmScale = " + json.dumps(SCALE) + ";")
         ctx.add_init_script("window.__pillText = " + json.dumps("SAMPLE: simulated stand-in, not a live run" if SAMPLE else None) + ";")
         ctx.add_init_script(OVERLAY)
+        if MASK_HOSTS and not SAMPLE:
+            _mask = mask_config(); log("host masking on:", _mask["hosts"], "hosts from the lab .env")
+            ctx.add_init_script(MASK_JS.replace("__CFG__", json.dumps(_mask)))
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
         # (T0 and MARK are set before the browser launches.) The Playwright video starts with the page: MARK["first"] (the first slide) says how much set-up to cut from its head
         page.goto(APP + "/"); page.wait_for_selector("[data-testid=top-menu]")
@@ -322,12 +368,15 @@ def main():
             st = STEPS[sample_key] if (SAMPLE and sample_key) else STEPS[key]
             page.evaluate("o => window.__cm.cap(o)", dict(n=count["n"], total=TOTAL, title=st["title"], text=st["text"], target=target, lines=lines, prefer=prefer, place=place))
             snap(f"step-{count['n']:02d}-{key}")
+            leak = page.evaluate("() => window.__maskLeak ? window.__maskLeak() : null")
+            if leak: result.setdefault("host_leaks", []).append(f"caption {count['n']}"); log("HOST LEAK on screen at caption", count["n"])
             page.wait_for_timeout(int((secs if secs is not None else hold(st["text"] + " ".join(lines or []))) * 1000 * (0.04 if REHEARSE else 1)))
 
         def show_slide(cfg, extra=0.0, name="slide", cap=30.0):
             MARK.setdefault("first", time.time())
             page.evaluate("o => window.__cm.slide(o)", slide_payload(cfg))
             snap(name)
+            if page.evaluate("() => window.__maskLeak ? window.__maskLeak() : null"): result.setdefault("host_leaks", []).append(name); log("HOST LEAK on screen at slide", name)
             total_ms = int(hold_slide(cfg, extra=extra, cap=cap) * 1000 * (0.04 if REHEARSE else 1))
             pre_ms = min(6000, int(total_ms * 0.45))
             page.wait_for_timeout(pre_ms)
@@ -509,7 +558,7 @@ def main():
                 if SAMPLE: closing["lead"] = STEPS["sample_closing_lead"]["text"]
                 show_slide(closing, extra=3.0, name="closing", cap=30.0)
             records_ok = SEGMENT == "main" or len(result.get("obs_records", [])) == 2   # the slide needs both runs' records (or a curated obs-slide.json written after the log capture)
-            result["ok"] = bool(result.get("main_ok", True)) and records_ok and "window_moved_at" not in result
+            result["ok"] = bool(result.get("main_ok", True)) and records_ok and "window_moved_at" not in result and not result.get("host_leaks")
             page.evaluate("() => window.__cm.clear()")
         finally:
             log("stopping recording")
