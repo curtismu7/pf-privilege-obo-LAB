@@ -17,10 +17,10 @@
 # Opening Slide
 
 ## Title
-Acting for a person: who is asking?
+On-behalf-of (OBO) in PingOne Privilege: who is asking?
 
 ## Lead
-One token can name the person and the agent. Two ways to get it.
+An agent calls tools through the Privilege gateway for a person. One token can name both.
 
 ## Column A: Obvious way
 - The agent uses its own credentials

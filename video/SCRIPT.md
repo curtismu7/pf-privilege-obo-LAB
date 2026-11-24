@@ -72,7 +72,7 @@ Slides are full screen and unnumbered; caption bubbles are numbered. Exact wordi
 
 | # | On screen | What the viewer reads (gist) | Source |
 |---|---|---|---|
-| Open | Slide (about 30 words) | Who is asking, and what is acting for them? One token can say both. Two ways to get it: the agent trades for it, or the gateway does. | RFC8693 §1.1 (delegation); framing is narration |
+| Open | Slide (about 30 words) | Title names it: on-behalf-of (OBO) in PingOne Privilege. Who is asking, and what is acting for them? An agent calls tools through the Privilege gateway for a person. One token can name both. | RFC8693 §1.1 (delegation); framing is narration |
 | Slide | RFC slide (about 40 words) | **RFC 8693**: send the token endpoint a token that proves the person; get back a new token. It may name the actor in an `act` claim. `resource` and `audience` say where it will be used. A receiver whose name is not in `aud` must reject it. | RFC8693 §2.1, §4.1; RFC7519 §4.1.3 (when `aud` is present) |
 | **Part 1** | | | |
 | 1 | Lab, Real, Agent-side tab | The person signs in. The page shows who: the ID token's `sub` and its short life. | L1 |
