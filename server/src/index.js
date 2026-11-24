@@ -12,6 +12,7 @@ import { oboConfig, publicView, runReal, NOT_CONFIGURED } from "./oboReal.js";
 import { createRunLog, observeMockRun, observeRealRun, buildRunRecord } from "./runLog.js";
 import { RunObsError } from "./runObservability.js";
 import { readersFromEnv } from "./runObservabilityReaders.js";
+import { storyResponse } from "./storyRoute.js";
 
 // Real mode = the shared gateway hop: an agent key from the shared settings file calling a live Privilege door.
 const PFO_REFUSAL = "Real is not configured: set PFO_GW_URL, PFO_GW_APPS and at least one PFO_GW_KEY_<NAME> in the shared settings file (~/Development/.env, or STANDALONE_ENV). Mock keeps working.";
@@ -119,6 +120,12 @@ export function buildServer({ netguard, runLog: injectedRunLog, runLogWrite, run
 
   app.get("/api/info", (req, res) => {
     res.json({ source: state.source, realAvailable: Boolean(realDoorFrom()) || oboConfigNow().ok, realReason: NOT_CONFIGURED });
+  });
+
+  // Story mode wording (shared/story/README.md): the page's live Story and the recorded video both read this one copy of captions.md.
+  app.get("/api/story", (req, res) => {
+    const { status, body } = storyResponse();
+    res.status(status).json(body);
   });
 
   app.post("/api/mode", (req, res) => {

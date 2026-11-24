@@ -11,6 +11,9 @@ services:
     env_file:
       - path: .env
         required: false
+    volumes:
+      # The Story wording is read at run time, so an edit to captions.md shows without a rebuild (read-only).
+      - ./video/captions.md:/app/video/captions.md:ro
     environment:
       # Run observability (rule 27), Real mode only. A loopback Elasticsearch URL and a READ-ONLY key; empty = the Real record says
       # "unreachable" and names what to set. Never mount the Docker socket here.

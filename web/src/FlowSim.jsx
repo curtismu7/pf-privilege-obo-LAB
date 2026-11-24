@@ -89,6 +89,8 @@ export default function FlowSim({ catalog, activeScenario, onScenarioDone, speed
     setResult(null);
     reset();
     setEdges((prev) => prev.map((e) => ({ ...e, animated: true })));
+    // The page announces runs so the Story bar can say whose turn it is (a Mock replay of a recorded shape is still a run).
+    window.dispatchEvent(new CustomEvent("pfo:run-start"));
     // Walk the SSO -> exchange -> run chain with the chosen scenario.
     const delay = (ms) => new Promise((r) => setTimeout(r, ms / (speed || 1)));
     await delay(500);
@@ -106,8 +108,8 @@ export default function FlowSim({ catalog, activeScenario, onScenarioDone, speed
       scenario: scenario.id,
       subjectToken: ex.body && ex.body.token,
       tool: effectiveTool
-    });
-    const hops = (runRes.body && runRes.body.hops) || [];
+    }).catch(() => null);
+    const hops = (runRes && runRes.body && runRes.body.hops) || [];
     // Walk edges 2..5 in step with the server hops; the first server hop (nhi)
     // lands on edge 2 (agent -> nhi).
     for (let h = 0; h < hops.length && h < 4; h++) {
@@ -117,9 +119,10 @@ export default function FlowSim({ catalog, activeScenario, onScenarioDone, speed
       await delay(600);
       if (!hop.ok) break;
     }
-    setResult(runRes.body);
+    setResult(runRes && runRes.body);
     setRunning(false);
-    if (onScenarioDone) onScenarioDone(runRes.body);
+    window.dispatchEvent(new CustomEvent("pfo:run-end", { detail: { ok: Boolean(runRes && runRes.status === 200) } }));
+    if (runRes && onScenarioDone) onScenarioDone(runRes.body);
   };
 
   const onNodesChange = () => {}; // positions update internally via ReactFlow

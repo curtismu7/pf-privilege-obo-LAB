@@ -85,12 +85,16 @@ export default function RealObo({ onRan }) {
 
   const start = async () => {
     setBusy(true); setError(null); setOpen(null);
+    // The page announces runs so the Story bar can say whose turn it is (ok is false only when the request itself failed; the refusal frame is an expected run).
+    window.dispatchEvent(new CustomEvent("pfo:run-start"));
     try {
       const r = await postJson("/api/real/obo/run", { shape, refusal });
       if (r.status === 200) { setRun(r.body); setError(null); onRan?.(r.body?.id); }
       else { setRun(null); setError(r.body?.error || `HTTP ${r.status}`); onRan?.(null); }
+      window.dispatchEvent(new CustomEvent("pfo:run-end", { detail: { ok: r.status === 200 } }));
     } catch (err) {
       setRun(null); setError(`Could not reach the lab: ${String(err?.message || err).slice(0, 120)}`); onRan?.(null);
+      window.dispatchEvent(new CustomEvent("pfo:run-end", { detail: { ok: false } }));
     } finally { setBusy(false); }
   };
   const stoppedEarly = run?.frames?.some((f) => f.state === "skipped");
