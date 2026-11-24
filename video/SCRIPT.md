@@ -128,7 +128,7 @@ Slides are full screen and unnumbered; caption bubbles are numbered. Exact wordi
 ## On screen: what is masked and what is not
 
 - Tokens are shown in full, with the decoded claims beside them (demo; owner, 2026-11-22). Client secrets and the user's password never appear: the exchange frame names the client and the authentication method, and the sign-in frame shows `password: <not shown>`.
-- **Not masked, owner's call before sharing outside the company:** the PingFederate host (the token's `iss` and the token URL) and the gateway host (the door URLs). The console read-out slide is built from the read-only API values and kept local; it is not committed (`video/assets/` and `video/out/` are gitignored).
+- **Hosts are masked on screen (owner, 2026-11-24):** the live take replaces the PingFederate host, the gateway host, any other host named in the lab's `.env`, their parent domain and in-cluster service names with `pingfederate.example`, `gateway.example`, `host.example` and `backend.example`. The list is read from the lab's own `.env` at run time (nothing is written into the repo). `take.py` scans the visible text at every caption and slide and refuses to claim success (`host_leaks` in `result.json`) if a real host shows. `MASK_HOSTS=0` turns it off for a private rehearsal. Tokens are still shown in full (the encoded text is not readable as a host); the console read-out slide stays local.
 - The user shown is `<demo-user>` (the account in the vault, not `demouser`). **Decision for the owner:** keep it on screen as is, or supply the `demouser` password so the take shows a friendlier name.
 
 ## Not in this video (on purpose)
