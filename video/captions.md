@@ -1,20 +1,31 @@
 <!--
-  All the WORDING for the OBO video (two parts). Edit the text under each heading, nothing else needs to change.
-  take.py reads this file and fills in live values around it; it never writes this file. SCRIPT.md is the source for every claim here:
-  a sentence with no source tag in SCRIPT.md does not belong in this file.
+  All the WORDING for the OBO video (two parts) AND the live Story. Edit the text under each heading, nothing else needs to change.
+  The lab serves this file at GET /api/story (the shared Story parser); the live Story and take.py both read that, and take.py fills in live
+  values (a status code, a timing) around whatever you write here; it never touches this file itself. SCRIPT.md is the source for every claim
+  here: a sentence with no source tag in SCRIPT.md does not belong in this file.
 
   Rules for editing safely:
-  - Don't rename a "# Opening Slide" / "# Closing Slide" / "# Slide: <key>" / "# Step: <key>" heading, and don't rename a
-    "## Title" / "## Text" / "## Lead" / "## Verdict" / "## Image" / "## Column A: ..." / "## Column B: ..." heading.
+  - The first page has a "## Header" naming what the demo shows (rule 29): keep it on the Opening Slide and on sample_note (the simulated
+    run's first page).
+  - Don't rename a "# Opening Slide" / "# Closing Slide" / "# Slide: <key>" / "# Step: <key>" heading, and don't rename
+    a "## Header" / "## Title" / "## Text" / "## Lead" / "## Verdict" / "## Column A: ..." / "## Column B: ..." heading.
+    Those names are how the video and the Story find the right piece of text. Editing the WORDS after them is always safe.
   - A "## Column A: <label>" or "## Column B: <label>" label IS shown on the slide as that column's heading.
   - Keep each bullet under a column on its own line starting with "- ".
   - "---" on its own line separates one section from the next.
   - No slide is held longer than 10 seconds (owner, 2026-11-22): keep each slide to about 40 words (lead, bullets and verdict).
   - This repo is public: no host names, client ids or user names here. The take shows the real ones on screen; the lab's .env holds them.
   - The "# Slide: observability" section holds the wording around the rows; take.py fills the bullets from the run's own capture.
+    The live Story shows this scene as a bubble on the page's own Run Observability panel instead (the key story_observability).
+  - Live values go in {braces}, filled from the page by the Story wiring (storyWiring.js). The video ignores them.
+  - Steps starting with sample_ are the MOCK wording: shown in Mock mode only, always saying the run is simulated. A step that claims a
+    live call needs its sample_ twin (mistake 11 in shared/story/ADDING-TO-A-LAB.md).
 -->
 
 # Opening Slide
+
+## Header
+On-behalf-of (OBO) in PingOne Privilege
 
 ## Title
 On-behalf-of (OBO) in PingOne Privilege: who is asking?
@@ -139,6 +150,9 @@ A row is never inferred from a missing line. Not logged means no line was found.
 
 # Slide: sample_note
 
+## Header
+On-behalf-of (OBO) in PingOne Privilege
+
 ## Title
 SAMPLE: a stand-in, not a live run
 
@@ -193,6 +207,16 @@ Sample closing line
 
 ## Text
 This sample showed the page and its captions. The live take shows the real tenant.
+
+---
+
+# Step: sample_walk_intro
+
+## Title
+Simulated walkthrough
+
+## Text
+Mock mode: the flow simulation replays recorded shapes. Nothing here calls a live tenant.
 
 ---
 
@@ -363,3 +387,13 @@ Refused, same kind of challenge
 
 ## Text
 HTTP 401 with a challenge that points at this door's metadata.
+
+---
+
+# Step: story_observability
+
+## Title
+What the run left behind
+
+## Text
+The Run Observability panel lists what this run produced, layer by layer, and how each row is known. Mock rows are simulated; Real rows are replies the lab received or lines read from a log.

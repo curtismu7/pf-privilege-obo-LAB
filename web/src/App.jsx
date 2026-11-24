@@ -1,5 +1,6 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { lazy, Suspense, useEffect, useRef, useState } from "react";
 import TopMenu from "./top-menu/TopMenu.jsx";
+import StoryToggle, { storyKey } from "./story/StoryToggle.jsx";
 import TalkTrackDialog from "./talk-track/TalkTrackDialog.jsx";
 import VerifyMark from "./components/VerifyMark.jsx";
 import "./top-menu/top-menu.css";
@@ -16,6 +17,25 @@ import RunObservability from "./run-observability/RunObservability.jsx";
 import RunObsLoading from "./RunObsLoading.jsx";
 import { getDiagram } from "./diagram-data.js";
 import PrivilegeCheck from "./privilege-check/PrivilegeCheck.jsx";
+
+// Story mode is loaded only when the viewer switches it on, so the page in Demo mode does not pay for it.
+const StoryRoot = lazy(() => import("./StoryRoot.jsx"));
+export const STORY_PREFIX = "pfo";
+
+// If the Story chunk cannot load (the lab was rebuilt, a stale file name, the network) the page must survive: Demo mode is never taken down by Story.
+class StoryBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { failed: false }; }
+  static getDerivedStateFromError() { return { failed: true }; }
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <div className="story-bar" role="alert" data-testid="story-error">
+        <span className="story-msg">Story could not load. Reload the page and try again.</span>
+        <button type="button" onClick={this.props.onExit}>Exit</button>
+      </div>
+    );
+  }
+}
 
 const STUDIO = getDiagram();
 
@@ -63,6 +83,8 @@ export default function App() {
   }, [theme]);
   const [presenter, setPresenter] = useState(false);
   const [talkOpen, setTalkOpen] = useState(false);
+  const [storyOn, setStoryOn] = useState(() => { try { return localStorage.getItem(storyKey(STORY_PREFIX)) === "story" || new URLSearchParams(window.location.search).has("story"); } catch { return false; } });
+  const [toggleKey, setToggleKey] = useState(0);
   const [obs, setObs] = useState({ key: null, record: null }); // the record read for `key`: { record: null = no such run | the record | { error, message } }
   const [obsTarget, setObsTarget] = useState(undefined); // the run to read: its id, undefined = the newest run of this mode, null = an attempt that began no run
   const [obsTick, setObsTick] = useState(0); // bumped after each run, and by the Re-read button
@@ -116,6 +138,18 @@ export default function App() {
     setObsTick((n) => n + 1);
   };
 
+  const onView = (on) => {
+    setStoryOn(on);
+    try { localStorage.setItem(storyKey(STORY_PREFIX), on ? "story" : "demo"); } catch { /* storage blocked: the choice just does not persist */ }
+  };
+  // Exit in the Story bar: back to Demo, remembered, and ?story=1 dropped from the address so a reload stays in Demo. The toggle is remounted (a fresh
+  // `key`), so its own state matches the new Demo view.
+  const leaveStory = () => {
+    try { const u = new URL(window.location.href); if (u.searchParams.has("story")) { u.searchParams.delete("story"); window.history.replaceState(null, "", u); } } catch { /* no address to tidy */ }
+    setToggleKey((k) => k + 1);
+    onView(false);
+  };
+
   const switchMode = async (target) => {
     const r = await postJson("/api/mode", { source: target });
     if (r.status === 200) {
@@ -151,14 +185,14 @@ export default function App() {
             theme={{ value: theme, onChange: setTheme }}
             present={{ active: presenter, onToggle: () => setPresenter((v) => !v), label: "Presenter (Alt+P)" }}
           talkTrack={{ active: talkOpen, onToggle: () => setTalkOpen((v) => !v) }}
-            extra={<label className="speed-control" htmlFor="speed">Speed
+            extra={<><label className="speed-control" htmlFor="speed">Speed
               <select id="speed" value={speed} onChange={(e) => setSpeed(Number(e.target.value))}>
                 <option value={0.5}>0.5×</option>
                 <option value={1}>1×</option>
                 <option value={2}>2×</option>
                 <option value={4}>4×</option>
               </select>
-            </label>}
+            </label><StoryToggle key={toggleKey} prefix={STORY_PREFIX} onChange={onView} /></>}
           >
             <VerifyMark id="pf-privilege-obo-lab" />
           </TopMenu>
@@ -208,6 +242,14 @@ export default function App() {
       </footer>
 
       <TalkTrackDialog isOpen={talkOpen} onClose={() => setTalkOpen(false)} talk={talkSteps} />
+
+      {storyOn ? (
+        <StoryBoundary onExit={leaveStory}>
+          <Suspense fallback={null}>
+            <StoryRoot mode={source === "real" ? "real" : "mock"} ready={Boolean(info.data)} onExit={leaveStory} prefix={STORY_PREFIX} />
+          </Suspense>
+        </StoryBoundary>
+      ) : null}
     </div>
   );
 }
