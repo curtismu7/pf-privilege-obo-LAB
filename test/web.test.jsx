@@ -116,6 +116,13 @@ describe("App", () => {
     render(<App />);
     await waitFor(() => expect(screen.getByTestId("mode-select")).toBeTruthy());
   });
+
+  it("names the subject in the header: on-behalf-of (OBO) in PingOne Privilege", async () => {
+    mockFetch();
+    const { container } = render(<App />);
+    await waitFor(() => expect(container.querySelector(".shell-brand")).toBeTruthy());
+    expect(container.querySelector(".shell-brand").textContent).toMatch(/On-behalf-of \(OBO\) in PingOne Privilege/);
+  });
 });
 
 describe("OpeningCard", () => {

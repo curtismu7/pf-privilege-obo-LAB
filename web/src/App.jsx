@@ -136,7 +136,7 @@ export default function App() {
           <span className="brand-mark" aria-hidden="true">
             ◆
           </span>
-          PF → Privilege OBO Lab
+          On-behalf-of (OBO) in PingOne Privilege
         </div>
         <nav className="shell-nav" aria-label="Sections">
           <a href="#flow" aria-current="page">
