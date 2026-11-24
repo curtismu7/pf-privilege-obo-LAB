@@ -251,9 +251,9 @@ def main():
         T0 = time.time(); MARK = {}   # the Playwright video starts when the browser launches
         ctx = pw.chromium.launch_persistent_context(
             profile, headless=HEADLESS, no_viewport=not HEADLESS, viewport={"width": WIN_W, "height": WIN_H} if HEADLESS else None,
-            **({"device_scale_factor": _prof["dsf"]} if HEADLESS else {}),   # the laptop is a retina display: render at 2x, record at 2400 px wide
+            **({"device_scale_factor": _prof["dsf"]} if HEADLESS else {}),   # the laptop is a retina display: render at 2x (screenshots only; the recorded video is a 1x capture of the viewport, scaled up to 2400 px wide when encoded)
             color_scheme="light",
-            **({"record_video_dir": str(WORK / "pw-video"), "record_video_size": {"width": _prof["video"][0], "height": _prof["video"][1]}} if RECORD_PW else {}),
+            **({"record_video_dir": str(WORK / "pw-video"), "record_video_size": {"width": WIN_W, "height": WIN_H}} if RECORD_PW else {}),   # the page fills the canvas only if the canvas is the viewport size; scaled to the profile's video size when encoding
             args=[f"--window-position={WIN_X},{WIN_Y}", f"--window-size={WIN_W},{WIN_H}", "--no-first-run", "--no-default-browser-check", *([] if HEADLESS else ["--kiosk"])])
         ctx.add_init_script("window.__cmScale = " + json.dumps(SCALE) + ";")
         ctx.add_init_script("window.__pillText = " + json.dumps("SAMPLE: simulated stand-in, not a live run" if SAMPLE else None) + ";")
@@ -524,7 +524,7 @@ def main():
         ctx.close()
         if vpath:
             out = WORK / (("sample.mp4" if SEGMENT == "all" else f"sample-{SEGMENT}.mp4") if SAMPLE else f"take-headless-{SEGMENT}.mp4")
-            subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-ss", f"{max(0.0, MARK.get('first', T0) - T0 - 0.3):.2f}", "-i", str(vpath), "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", str(out)], check=True)
+            subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-ss", f"{max(0.0, MARK.get('first', T0) - T0 - 0.3):.2f}", "-i", str(vpath), "-vf", f"scale={_prof['video'][0]}:{_prof['video'][1]}:flags=lanczos", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", str(out)], check=True)
             log("sample video:", out)
 
 if __name__ == "__main__":
