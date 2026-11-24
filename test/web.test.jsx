@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 import React from "react";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import App from "../web/src/App.jsx";
 import OpeningCard from "../web/src/OpeningCard.jsx";
 import ScenarioPicker from "../web/src/ScenarioPicker.jsx";
@@ -115,6 +117,17 @@ describe("App", () => {
     mockFetch();
     render(<App />);
     await waitFor(() => expect(screen.getByTestId("mode-select")).toBeTruthy());
+  });
+
+  it("names the subject in the header and the page title: on-behalf-of (OBO) in PingOne Privilege", async () => {
+    mockFetch();
+    const { container } = render(<App />);
+    await waitFor(() => expect(container.querySelector(".shell-brand")).toBeTruthy());
+    const NAME = "On-behalf-of (OBO) in PingOne Privilege";
+    // exactly the name (the decorative mark aside), not text that merely contains it
+    expect(container.querySelector(".shell-brand").textContent.replace("\u25c6", "").trim()).toBe(NAME);
+    // the browser tab says the same, so the two hand-edited strings cannot drift apart
+    expect(readFileSync(resolve(process.cwd(), "web/index.html"), "utf8")).toMatch(new RegExp(`<title>${NAME.replace(/[()]/g, "\\$&")}</title>`));
   });
 });
 
