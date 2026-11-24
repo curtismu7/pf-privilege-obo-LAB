@@ -251,7 +251,7 @@ def main():
         T0 = time.time(); MARK = {}   # the Playwright video starts when the browser launches
         ctx = pw.chromium.launch_persistent_context(
             profile, headless=HEADLESS, no_viewport=not HEADLESS, viewport={"width": WIN_W, "height": WIN_H} if HEADLESS else None,
-            **({"device_scale_factor": _prof["dsf"]} if HEADLESS else {}),   # the laptop is a retina display: render at 2x, record at 2400 px wide
+            **({"device_scale_factor": _prof["dsf"]} if HEADLESS else {}),   # the laptop is a retina display: render at 2x (screenshots only; the recorded video is a 1x capture of the viewport, scaled up to 2400 px wide when encoded)
             color_scheme="light",
             **({"record_video_dir": str(WORK / "pw-video"), "record_video_size": {"width": WIN_W, "height": WIN_H}} if RECORD_PW else {}),   # the page fills the canvas only if the canvas is the viewport size; scaled to the profile's video size when encoding
             args=[f"--window-position={WIN_X},{WIN_Y}", f"--window-size={WIN_W},{WIN_H}", "--no-first-run", "--no-default-browser-check", *([] if HEADLESS else ["--kiosk"])])
