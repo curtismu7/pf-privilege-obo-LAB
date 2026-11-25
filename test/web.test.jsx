@@ -260,6 +260,9 @@ describe("App: the record is for the run just made (review fixes)", () => {
     await waitFor(() => expect(screen.getByTestId("ro-loading")).toBeTruthy(), { timeout: 8000 });
     expect(screen.getByTestId("ro-loading").textContent).toMatch(/Collecting this run's logs/);
     expect(screen.queryByTestId("ro-table")).toBeNull();
+    // The r2 fetch may not have been issued yet when the loading state first appears
+    // (load-sensitive: release was observed undefined here). Wait until it is.
+    await waitFor(() => expect(typeof release).toBe("function"), { timeout: 8000 });
     release();
     await waitFor(() => expect(screen.getByTestId("ro-table")).toBeTruthy());
     expect(screen.queryByTestId("ro-loading")).toBeNull();

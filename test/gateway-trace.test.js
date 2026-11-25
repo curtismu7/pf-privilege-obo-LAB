@@ -7,6 +7,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { stop, startVerified } from "./test-helpers.js";
 import { buildServer } from "../server/src/index.js";
 import { assertTrace } from "../server/src/gatewayTrace.js";
 import { oboGatewayTrace } from "../server/src/oboTrace.js";
@@ -30,14 +31,17 @@ async function withServer(fn) {
   // Hermetic: a developer's real settings (the lab .env, the shared settings file) must not turn Real on in a test.
   process.env.PFO_ENV_FILE = "/dev/null";
   process.env.STANDALONE_ENV = "/dev/null";
-  const srv = buildServer().listen(0, "127.0.0.1");
-  await new Promise((r) => srv.on("listening", r));
+  const srv = await startVerified(async () => {
+    const s = buildServer().listen(0, "127.0.0.1");
+    await new Promise((r) => s.on("listening", r));
+    return s;
+  });
   const base = `http://127.0.0.1:${srv.address().port}`;
   const post = async (p, b) => {
     const res = await fetch(base + p, { method: "POST", headers: { "content-type": "application/json", origin: base }, body: JSON.stringify(b || {}) });
     return { status: res.status, body: await res.json() };
   };
-  try { await fn(post); } finally { srv.close(); }
+  try { await fn(post); } finally { await stop(srv); }
 }
 
 test("every scenario's run carries a mock trace that passes assertTrace, all decisions checked", async () => {

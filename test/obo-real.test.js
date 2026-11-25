@@ -7,6 +7,7 @@ import { writeFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { oboConfig, publicView, runReal, parseSettings, MADE_UP_TOKEN } from "../server/src/oboReal.js";
+import { stop, startVerified } from "./test-helpers.js";
 import { buildServer } from "../server/src/index.js";
 import { assertRunObservability } from "../server/src/runObservability.js";
 import { ElasticsearchReader } from "../server/src/runObservabilityReaders.js";
@@ -92,7 +93,7 @@ before(async () => {
   await new Promise((r) => stub.listen(0, "127.0.0.1", r));
   base = `http://127.0.0.1:${stub.address().port}`;
 });
-after(() => stub.close());
+after(() => stop(stub));
 beforeEach(() => resetKnobs());
 
 const settings = () => `PFO_USER_NAME=stub-user
@@ -309,14 +310,17 @@ async function withApi(envText, fn, opts = {}) {
   process.env.STANDALONE_ENV = "/dev/null";
   process.env.LAB_ALLOWED_HOSTS = "localhost:7812,127.0.0.1:7812";
   const app = buildServer({ runLogWrite: () => {}, runObsReaders: [], ...opts });
-  const srv = app.listen(0, "127.0.0.1");
-  await new Promise((r) => srv.on("listening", r));
+  const srv = await startVerified(async () => {
+    const s = app.listen(0, "127.0.0.1");
+    await new Promise((r) => s.on("listening", r));
+    return s;
+  });
   const api = `http://127.0.0.1:${srv.address().port}`;
   const j = async (p, b, method = "POST") => {
     const res = await fetch(api + p, { method, headers: { "content-type": "application/json", ...(method !== "GET" ? { origin: api } : {}) }, body: method === "GET" ? undefined : JSON.stringify(b || {}) });
     return { status: res.status, note: res.headers.get("x-run-observability-note"), body: res.status === 204 ? null : await res.json() };
   };
-  try { await fn(j, app); } finally { srv.close(); delete process.env.PFO_ENV_FILE; delete process.env.STANDALONE_ENV; }
+  try { await fn(j, app); } finally { await stop(srv); delete process.env.PFO_ENV_FILE; delete process.env.STANDALONE_ENV; }
 }
 
 test("API: Real is refused 409 until configured; info says why", async () => {

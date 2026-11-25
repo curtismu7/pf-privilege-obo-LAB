@@ -5,6 +5,7 @@ import { existsSync, readFileSync, readdirSync, mkdtempSync, mkdirSync, writeFil
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
+import { stop, startVerified } from "./test-helpers.js";
 import { buildServer } from "../server/src/index.js";
 import { assertRunObservability, classify, layerMatchers } from "../server/src/runObservability.js";
 import { checkPin } from "../scripts/run-observability-checkPin.mjs";
@@ -58,14 +59,17 @@ async function withMock(fn, opts = {}) {
   process.env.PFO_ENV_FILE = "/dev/null";
   process.env.STANDALONE_ENV = "/dev/null";
   const lines = [];
-  const srv = buildServer({ runLogWrite: (l) => lines.push(l), runObsReaders: [], ...opts }).listen(0, "127.0.0.1");
-  await new Promise((r) => srv.on("listening", r));
+  const srv = await startVerified(async () => {
+    const s = buildServer({ runLogWrite: (l) => lines.push(l), runObsReaders: [], ...opts }).listen(0, "127.0.0.1");
+    await new Promise((r) => s.on("listening", r));
+    return s;
+  });
   const api = `http://127.0.0.1:${srv.address().port}`;
   const j = async (p, b, method = "POST") => {
     const res = await fetch(api + p, { method, headers: { "content-type": "application/json", ...(method !== "GET" ? { origin: api } : {}) }, body: method === "GET" ? undefined : JSON.stringify(b || {}) });
     return { status: res.status, note: res.headers.get("x-run-observability-note"), body: res.status === 204 ? null : await res.json() };
   };
-  try { await fn(j, lines); } finally { srv.close(); delete process.env.PFO_ENV_FILE; delete process.env.STANDALONE_ENV; }
+  try { await fn(j, lines); } finally { await stop(srv); delete process.env.PFO_ENV_FILE; delete process.env.STANDALONE_ENV; }
 }
 const rowsOf = (rec, layer) => rec.rows.filter((r) => r.layer === layer);
 
