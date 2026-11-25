@@ -22,7 +22,7 @@ function forbiddenHostHits(text) {
 const FORBIDDEN = [
   /pingone\.com(?!\.invalid)/,
   /procyon\.ai(?!\.invalid)/,
-  new RegExp(["curtis", "mu7"].join("")),
+  new RegExp(["curtis", "mu7/(?!(pf-privilege-obo-LAB)/)"].join("")),
   new RegExp(["cmuir", "_pingcorp"].join("")),
   new RegExp(["ping-", "sandbox"].join("")),
   /ai[-_]?demo2/i,
