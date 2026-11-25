@@ -61,7 +61,7 @@ Mock / Real toggle in the header.
     and the person's password are write-only: never returned, shown or logged. What Privilege checked is not reported as if the gateway said it: a real gateway returns no
     per-check detail, so the door frame says accepted or refused and labels the checks inferred.
   - Docker: `docker compose up --build -d` reads `.env` through compose's `env_file` (optional; needs Compose 2.24 or later). Compose treats `$` and ` #` in values specially, so single-quote a password or secret that contains them. The publish stays `127.0.0.1` only.
-- The video build lives in `video/` (script first, then a sample, then the live take).
+- The video build lives in `video/` (script first, then a sample, then the live take). The public video (recorded live in Real mode on the 5bfb4e12 tenant, monitor and laptop cuts): [release `pf-privilege-obo-lab-video-2026-11-25`](https://github.com/curtismu7/pf-privilege-obo-LAB/releases/tag/pf-privilege-obo-lab-video-2026-11-25).
 
 ## What each layer logged for this run (rule 27)
 
