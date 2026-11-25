@@ -114,6 +114,11 @@ export function buildServer({ netguard, runLog: injectedRunLog, runLogWrite, run
     next();
   });
 
+  app.get("/api/__port-verify", (req, res) => {
+    if (!process.env.WI_VERIFY_PORT) return res.status(404).json({ error: "not_found" });
+    res.setHeader("x-wi-port-verify", String(req.headers["x-wi-port-verify"] || ""));
+    res.json({ ok: true });
+  });
   app.get("/api/health", (req, res) => {
     res.json({ ok: true, contract: "demo-health/1", app: "pf-privilege-obo-LAB", source: state.source });
   });

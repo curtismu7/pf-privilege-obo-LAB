@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildServer, readState } from "../server/src/index.js";
+import { stop, startVerified } from "./test-helpers.js";
 import * as pf from "../server/src/pf.js";
 
 const HOST = "localhost:7812";
@@ -11,9 +12,11 @@ async function withServer(fn) {
   // Hermetic: a developer's real settings (the lab .env, the shared settings file) must not turn Real on in a test.
   process.env.PFO_ENV_FILE = "/dev/null";
   process.env.STANDALONE_ENV = "/dev/null";
-  const app = buildServer();
-  const srv = app.listen(PORT, "127.0.0.1");
-  await new Promise((r) => srv.on("listening", r));
+  const srv = await startVerified(async () => {
+    const s = buildServer().listen(PORT, "127.0.0.1");
+    await new Promise((r) => s.on("listening", r));
+    return s;
+  });
   const addr = srv.address();
   const base = `http://127.0.0.1:${addr.port}`;
   const j = async (p, b, method = "POST") => {
@@ -27,7 +30,7 @@ async function withServer(fn) {
   try {
     await fn(j, base);
   } finally {
-    srv.close();
+    await stop(srv);
   }
 }
 
@@ -207,9 +210,11 @@ test("exchange refuses a bad subject token and mints OBO claims for a good one",
 });
 
 test("host check refuses unknown non-loopback hosts", async () => {
-  const app = buildServer();
-  const srv = app.listen(0, "127.0.0.1");
-  await new Promise((r) => srv.on("listening", r));
+  const srv = await startVerified(async () => {
+    const s = buildServer().listen(0, "127.0.0.1");
+    await new Promise((r) => s.on("listening", r));
+    return s;
+  });
   const port = srv.address().port;
   // Use node:http directly: fetch forbids setting the Host header.
   const { request } = await import("node:http");
@@ -221,13 +226,15 @@ test("host check refuses unknown non-loopback hosts", async () => {
     req.end();
   });
   assert.equal(status, 403);
-  srv.close();
+  await stop(srv);
 });
 
 test("cross-origin write refused (origin mismatch)", async () => {
-  const app = buildServer();
-  const srv = app.listen(0, "127.0.0.1");
-  await new Promise((r) => srv.on("listening", r));
+  const srv = await startVerified(async () => {
+    const s = buildServer().listen(0, "127.0.0.1");
+    await new Promise((r) => s.on("listening", r));
+    return s;
+  });
   const port = srv.address().port;
   const res = await fetch(`http://127.0.0.1:${port}/api/run`, {
     method: "POST",
@@ -235,7 +242,7 @@ test("cross-origin write refused (origin mismatch)", async () => {
     body: JSON.stringify({ scenario: "happy-read" })
   });
   assert.equal(res.status, 403);
-  srv.close();
+  await stop(srv);
 });
 
 test("reset clears runs", async () => {
