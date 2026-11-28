@@ -12,15 +12,6 @@
 
 /* App-specific styles on top of the vendored family stylesheet (theme tokens only). */
 
-.sim-banner {
-  border: 1px solid var(--control-border);
-  border-left: 4px solid var(--accent);
-  padding: 10px 14px;
-  border-radius: 8px;
-  margin: 12px 0;
-  background: var(--surface, transparent);
-}
-
 .mode-toggle {
   display: inline-flex;
   gap: 4px;

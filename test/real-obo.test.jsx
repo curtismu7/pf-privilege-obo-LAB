@@ -3,7 +3,6 @@ import { render, screen, fireEvent, waitFor, cleanup, within } from "@testing-li
 import React from "react";
 import App from "../web/src/App.jsx";
 import RealObo from "../web/src/RealObo.jsx";
-import SimulationBanner from "../web/src/Banner.jsx";
 import { setJsonView } from "../web/src/components/JsonPane.jsx";
 
 beforeAll(() => {
@@ -163,19 +162,27 @@ describe("Real mode in the app", () => {
     render(<App />);
     await waitFor(() => expect(screen.getByTestId("real-obo")).toBeTruthy());
     expect(screen.queryByTestId("scenario-picker")).toBeNull();
-    expect(screen.getByTestId("sim-banner").textContent).toMatch(/live calls/i);
+    // Mock first, REAL once /api/info has answered (the mode is read from the server).
+    await waitFor(() => expect(screen.getByTestId("mode-modal").getAttribute("data-mode")).toBe("real"));
+    expect(screen.getByTestId("mode-modal").textContent).toMatch(/REAL/);
+    expect(screen.getByTestId("mode-modal").textContent).toMatch(/live calls/i);
+    expect(screen.getByTestId("mode-modal").textContent).toMatch(/secrets are never shown/);
+    expect(screen.queryByTestId("sim-banner")).toBeNull();
   });
 
-  it("Mock still shows the scenarios and the simulation banner", async () => {
+  it("Mock still shows the scenarios and the MOCK modal", async () => {
     mockFetch({ source: "mock" });
     render(<App />);
     await waitFor(() => expect(screen.getByTestId("scenario-picker")).toBeTruthy());
     expect(screen.queryByTestId("real-obo")).toBeNull();
-    expect(screen.getByTestId("sim-banner").textContent).toMatch(/fully simulated/i);
+    expect(screen.getByTestId("mode-modal").getAttribute("data-mode")).toBe("mock");
+    expect(screen.getByTestId("mode-modal").textContent).toMatch(/fully simulated/i);
   });
 
-  it("the banner for Real never claims the run is simulated", () => {
-    render(<SimulationBanner source="real" />);
-    expect(screen.getByTestId("sim-banner").textContent).not.toMatch(/fully simulated/i);
+  it("the REAL line never claims the run is simulated", async () => {
+    mockFetch({ source: "real" });
+    render(<App />);
+    await waitFor(() => expect(screen.getByTestId("mode-modal").getAttribute("data-mode")).toBe("real"));
+    expect(screen.getByTestId("mode-modal").textContent).not.toMatch(/fully simulated/i);
   });
 });

@@ -43,7 +43,7 @@ describe("verification mark in the header", () => {
       stubFetch(shelf);
       const { unmount } = render(<App />);
       await screen.findByTestId("top-menu");
-      await waitFor(() => expect(screen.getByTestId("sim-banner")).toBeTruthy());
+      await waitFor(() => expect(screen.getByTestId("mode-modal")).toBeTruthy());
       await new Promise((r) => setTimeout(r, 30));
       expect(document.querySelector(".verify")).toBeNull();
       unmount();

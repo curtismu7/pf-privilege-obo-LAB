@@ -6,8 +6,8 @@ the agent may do — and every refusal you'll see here is one we actually hit."
 
 ## The walk (about 6 minutes)
 
-1. **Point at the banner.** Everything is simulated in-process; nothing leaves the machine;
-   tokens are mock and labelled. (10 seconds — say it, don't dwell.)
+1. **Read the Mock modal.** The page opens on a MOCK pop-up: everything is simulated in-process; nothing leaves the machine;
+   tokens are mock and labelled. (10 seconds — say it, click Got it, don't dwell.)
 2. **Point at the opening card.** The story starts on the AI side: an agent is calling
    `tools/call SearchIndexTool` on an MCP server through the Privilege gateway. Two questions
    decide the call — who is asking, and what is acting for them. Everything else on the page
