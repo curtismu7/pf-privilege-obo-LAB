@@ -4,7 +4,7 @@ import StoryToggle, { storyKey } from "./story/StoryToggle.jsx";
 import TalkTrackDialog from "./talk-track/TalkTrackDialog.jsx";
 import VerifyMark from "./components/VerifyMark.jsx";
 import "./top-menu/top-menu.css";
-import SimulationBanner, { ModeToggle } from "./Banner.jsx";
+import ModeModal from "./mode-modal/ModeModal.jsx";
 import ThemePicker from "./ThemePicker.jsx";
 import FlowSim from "./FlowSim.jsx";
 import ScenarioPicker from "./ScenarioPicker.jsx";
@@ -21,6 +21,12 @@ import PrivilegeCheck from "./privilege-check/PrivilegeCheck.jsx";
 // Story mode is loaded only when the viewer switches it on, so the page in Demo mode does not pay for it.
 const StoryRoot = lazy(() => import("./StoryRoot.jsx"));
 export const STORY_PREFIX = "pfo";
+
+// The Real-or-mock modal (shared mode-modal) replaces the old simulation banner; it stays off while Story is on.
+const MODE_LINES = {
+  mock: "This lab is fully simulated: mock PingFederate, Privilege gateway and MCP backend run in-process, and every token is mock and labelled. Nothing leaves this machine; the configuration, refusals and log lines mirror what we measured on a real PingFederate-to-Privilege setup.",
+  real: "Live calls to your own PingFederate and Privilege gateway, using the settings in this lab's .env. Tokens are shown in full, as decoded claims (it is a demo); passwords and client secrets are never shown.",
+};
 
 // If the Story chunk cannot load (the lab was rebuilt, a stale file name, the network) the page must survive: Demo mode is never taken down by Story.
 class StoryBoundary extends React.Component {
@@ -202,7 +208,6 @@ export default function App() {
       <main>
 
         {source !== "real" && <PrivilegeCheck />}
-        <SimulationBanner source={source} />
         {modeError && <p className="run-result refused" role="alert" data-testid="mode-error">{modeError}</p>}
         <OpeningCard opening={data && data.opening} />
         {presenter && (
@@ -242,6 +247,7 @@ export default function App() {
       </footer>
 
       <TalkTrackDialog isOpen={talkOpen} onClose={() => setTalkOpen(false)} talk={talkSteps} />
+      <ModeModal mode={source === "real" ? "real" : "mock"} lines={MODE_LINES} suppress={storyOn} storageKey="pfo-mode" />
 
       {storyOn ? (
         <StoryBoundary onExit={leaveStory}>

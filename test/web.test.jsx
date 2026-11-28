@@ -8,7 +8,6 @@ import OpeningCard from "../web/src/OpeningCard.jsx";
 import ScenarioPicker from "../web/src/ScenarioPicker.jsx";
 import IssuesPanel from "../web/src/IssuesPanel.jsx";
 import ChainSteps from "../web/src/ChainSteps.jsx";
-import Banner from "../web/src/Banner.jsx";
 import { setJsonView } from "../web/src/components/JsonPane.jsx";
 
 beforeAll(() => {
@@ -66,14 +65,32 @@ beforeEach(() => setJsonView("raw"));
 afterEach(() => cleanup());
 
 describe("App", () => {
-  it("renders simulation banner first, scenario picker and issues", async () => {
+  it("opens on the MOCK modal (fully simulated, nothing leaves the machine, mirrors what was measured); the old banner is gone; scenario picker and issues render", async () => {
     mockFetch();
     render(<App />);
-    await waitFor(() => expect(screen.getByTestId("sim-banner")).toBeTruthy());
-    expect(screen.getByTestId("sim-banner").textContent).toMatch(/fully simulated/i);
+    await waitFor(() => expect(screen.getByTestId("mode-modal")).toBeTruthy());
+    expect(screen.getByTestId("mode-modal").getAttribute("data-mode")).toBe("mock");
+    expect(screen.getByTestId("mode-modal").textContent).toMatch(/MOCK/);
+    expect(screen.getByTestId("mode-modal").textContent).toMatch(/fully simulated/i);
+    expect(screen.getByTestId("mode-modal").textContent).toMatch(/Nothing leaves this machine/);
+    expect(screen.getByTestId("mode-modal").textContent).toMatch(/what we measured/);
+    expect(screen.queryByTestId("sim-banner")).toBeNull();
+    expect(document.querySelector("main .sim-banner")).toBeNull();
+    fireEvent.click(screen.getByTestId("mode-modal-ok"));
+    expect(screen.queryByTestId("mode-modal")).toBeNull();
     await waitFor(() => expect(screen.getByRole("button", { name: "Happy" })).toBeTruthy());
     await waitFor(() => expect(screen.getByText("What Privilege does here")).toBeTruthy());
     expect(screen.getByText("What Privilege does here")).toBeTruthy();
+  });
+
+  it("Got it is remembered for the session: a second render does not show the modal again", async () => {
+    mockFetch();
+    const { unmount } = render(<App />);
+    fireEvent.click(await screen.findByTestId("mode-modal-ok"));
+    unmount();
+    render(<App />);
+    await waitFor(() => expect(screen.getByTestId("scenario-picker")).toBeTruthy());
+    expect(screen.queryByTestId("mode-modal")).toBeNull();
   });
 
   it("Real option is disabled with a reason when unconfigured (the shared TopMenu's mode select)", async () => {

@@ -105,7 +105,7 @@ log line), `logged` (Real: a line read from the product's own log) or `not-logge
 - `test/gateway-trace.test.js` + `test/gateway-trace-panel.test.jsx` (and the vendored
   `web/src/gateway-trace/gateway-trace.test.jsx`) — the vendored files' sha256 pin, the trace of
   every scenario through `assertTrace`, no token in a trace, and the panel in the page.
-- `test/web.test.jsx` + `test/flowsim-logic.test.jsx` — 11 vitest tests (banner, mode toggle,
+- `test/web.test.jsx` + `test/flowsim-logic.test.jsx` — 11 vitest tests (mode modal, mode toggle,
   theme picker, scenario runs, Reset semantics, scenario-tool precedence).
 
 ## Attribution

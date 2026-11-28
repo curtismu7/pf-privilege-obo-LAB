@@ -191,6 +191,7 @@ def main():
         ctx.add_init_script("window.__cmScale = " + json.dumps(SCALE) + ";")
         ctx.add_init_script("window.__pillText = " + json.dumps("SAMPLE: simulated stand-in, not a live run" if SAMPLE else None) + ";")
         ctx.add_init_script(overlay_script())
+        ctx.add_init_script("try { sessionStorage.setItem('pfo-mode-seen-mock', '1'); sessionStorage.setItem('pfo-mode-seen-real', '1'); } catch (e) {}")   # the Real-or-mock modal is already dismissed: it would block every click; released video unchanged
         if MASK_HOSTS and not SAMPLE:
             _mask = mask_config(); log("host masking on:", _mask["hosts"], "hosts from the lab .env")
             ctx.add_init_script(MASK_JS.replace("__CFG__", json.dumps(_mask)))
